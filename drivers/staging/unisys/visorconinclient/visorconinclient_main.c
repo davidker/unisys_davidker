@@ -69,7 +69,7 @@ static struct visor_channeltype_descriptor visorconinclient_channel_types[] = {
 	 KEYBOARD_CH_SIZE, KEYBOARD_CH_SIZE},
 	{ULTRA_MOUSE_CHANNEL_PROTOCOL_GUID, "mouse",
 	 MOUSE_CH_SIZE, MOUSE_CH_SIZE},
-	{GUID0, NULL, 0, 0}
+	{ NULL_UUID_LE, NULL, 0, 0}
 };
 
 /** This is used to tell the visor bus driver which types of visor devices
@@ -272,9 +272,9 @@ devdata_create(struct visor_device *dev)
 	void *rc = NULL;
 	struct visorconinclient_devdata *devdata = NULL;
 	int devno = -1;
-	GUID guid;
+	uuid_le guid;
 
-	guid = visorchannel_get_GUID(dev->visorchannel);
+	guid = visorchannel_get_uuid(dev->visorchannel);
 	devdata = kmalloc(sizeof(struct visorconinclient_devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
@@ -374,7 +374,7 @@ visorconinclient_probe(struct visor_device *dev)
 {
 	int rc = 0;
 	struct visorconinclient_devdata *devdata = NULL;
-	GUID guid;
+	uuid_le guid;
 
 	INFODRV("%s", __func__);
 
@@ -384,7 +384,7 @@ visorconinclient_probe(struct visor_device *dev)
 		goto Away;
 	}
 	visor_set_drvdata(dev, devdata);
-	guid = visorchannel_get_GUID(dev->visorchannel);
+	guid = visorchannel_get_uuid(dev->visorchannel);
 	if (memcmp(&guid, &MOUGUID, sizeof(guid)) != 0
 	    && memcmp(&guid, &KBDGUID, sizeof(guid)) != 0) {
 		ERRDRV("unrecognized GUID: (status=-1)\n");

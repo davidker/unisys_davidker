@@ -622,7 +622,7 @@ create_visor_device(U64 addr)
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE;
 	char s[99];
-	GUID guid = ULTRA_DIAG_CHANNEL_PROTOCOL_GUID;
+	uuid_le guid = ULTRA_DIAG_CHANNEL_PROTOCOL_GUID;
 
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	visorchannel = visorchannel_create(addr, DIAG_CH_SIZE, guid);

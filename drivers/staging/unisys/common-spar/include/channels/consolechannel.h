@@ -16,20 +16,22 @@
 #ifndef __CONSOLECHANNEL_H__
 #define __CONSOLECHANNEL_H__
 
+#include <linux/uuid.h>
+
 #include "commontypes.h"
 #include "channel.h"
 
 #define ULTRA_CONSOLE_CHANNEL_PROTOCOL_GUID  \
-	{ 0x9bbc3671, 0x5aea, 0x44a8, \
-		{0xa9, 0xff, 0xab, 0x65, 0x8e, 0xdf, 0x83, 0x9c} }
-static const GUID UltraConsoleChannelProtocolGuid =
+	UUID_LE(0x9bbc3671, 0x5aea, 0x44a8, \
+		0xa9, 0xff, 0xab, 0x65, 0x8e, 0xdf, 0x83, 0x9c)
+static const uuid_le UltraConsoleChannelProtocolGuid =
     ULTRA_CONSOLE_CHANNEL_PROTOCOL_GUID;
 
 /* {BFE91F41-45E1-4ad8-8676-D46420810841} */
 #define ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_GUID  \
-	{ 0xbfe91f41, 0x45e1, 0x4ad8, \
-		{0x86, 0x76, 0xd4, 0x64, 0x20, 0x81, 0x08, 0x41} }
-static const GUID UltraConsoleSerialChannelProtocolGuid =
+	UUID_LE(0xbfe91f41, 0x45e1, 0x4ad8, \
+		0x86, 0x76, 0xd4, 0x64, 0x20, 0x81, 0x08, 0x41)
+static const uuid_le UltraConsoleSerialChannelProtocolGuid =
     ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_GUID;
 
 #define ULTRA_CONSOLE_CHANNEL_PROTOCOL_SIGNATURE \
@@ -175,7 +177,7 @@ ULTRA_CONSOLESERIAL_init_channel(ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL * x)
 	x->ChannelHeader.Size = CONSOLE_CH_SIZE;
 	x->ChannelHeader.Type = UltraConsoleChannelProtocolGuid;
 	/* x->ChannelHeader.Type = UltraConsoleSerialChannelProtocolGuid; */
-	x->ChannelHeader.ZoneGuid = Guid0;
+	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
 	SignalInit(x, InQ, InData, U8, 0, 0);
 	SignalInit(x, OutQ, OutData, U8, 0, 0);
 	x->ChannelHeader.oChannelSpace =

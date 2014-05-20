@@ -32,6 +32,8 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/uuid.h>
+
 #include "periodic_work.h"
 #include "visorchannel.h"
 #include "channel.h"
@@ -47,7 +49,7 @@ typedef void (*VISORBUS_STATE_COMPLETE_FUNC) (struct visor_device *dev,
  *  GUID, name, and sizes.
  */
 struct visor_channeltype_descriptor {
-	const GUID guid;
+	const uuid_le guid;
 	const char *name;
 	ulong min_size;
 	ulong max_size;
@@ -115,7 +117,7 @@ struct visor_device {
 	 *  defined in visorchannel.h to access the channel
 	 */
 	VISORCHANNEL *visorchannel;
-	GUID channel_type_guid;
+	uuid_le channel_type_guid;
 	U64 channel_bytes;
 
 	/** These fields are for private use by the bus driver only.

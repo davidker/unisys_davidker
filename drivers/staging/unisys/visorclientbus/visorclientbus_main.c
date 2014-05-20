@@ -137,10 +137,10 @@ chipset_preamble(ulong busNo, ulong devNo, VISORCHIPSET_DEVICE_INFO *devInfo)
 		       __func__);
 		return NULL;
 	}
-	if ((memcmp(&devInfo->chanInfo.channelTypeGuid,
-		    &UltraVnicChannelProtocolGuid, sizeof(GUID)) != 0) &&
-	    (memcmp(&devInfo->chanInfo.channelTypeGuid,
-		    &UltraVhbaChannelProtocolGuid, sizeof(GUID)) != 0)) {
+	if ((uuid_le_cmp(devInfo->chanInfo.channelTypeGuid,
+		    UltraVnicChannelProtocolGuid) != 0) &&
+	    (uuid_le_cmp(devInfo->chanInfo.channelTypeGuid,
+		    UltraVhbaChannelProtocolGuid) != 0)) {
 		ERRDRV("%s - I only know how to handle VNIC or VHBA client channels",
 		     __func__);
 		return NULL;
@@ -167,8 +167,8 @@ chipset_bus_create(ulong busNo)
 		nChannelBytes = (ulong) busInfo.chanInfo.nChannelBytes;
 	}
 	/* Save off message with IOVM bus info in case of crash */
-	if ((memcmp(&busInfo.chanInfo.channelInstGuid,
-		    &UltraSIOVMGuid, sizeof(GUID)) == 0)) {
+	if ((uuid_le_cmp(busInfo.chanInfo.channelInstGuid,
+		    UltraSIOVMGuid) == 0)) {
 		msg.hdr.Id = CONTROLVM_BUS_CREATE;
 		msg.hdr.Flags.responseExpected = 0;
 		msg.hdr.Flags.server = 0;
@@ -229,8 +229,8 @@ chipset_device_create(ulong busNo, ulong devNo)
 		rc = -1;
 		goto Away;
 	}
-	if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-		    &UltraVnicChannelProtocolGuid, sizeof(GUID))) {
+	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+		    UltraVnicChannelProtocolGuid)) {
 		if (!uislib_client_inject_add_vnic
 		    (busNo, devNo,
 		     devInfo.chanInfo.channelAddr,
@@ -241,8 +241,8 @@ chipset_device_create(ulong busNo, ulong devNo)
 			goto Away;
 		}
 		goto Away;
-	} else if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-			   &UltraVhbaChannelProtocolGuid, sizeof(GUID))) {
+	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+			   UltraVhbaChannelProtocolGuid)) {
 		/* Save off message with hba info in case of crash */
 		if (busNo == dump_vhba_bus) {
 			msg.hdr.Id = CONTROLVM_DEVICE_CREATE;
@@ -300,12 +300,12 @@ chipset_device_destroy(ulong busNo, ulong devNo)
 		rc = -1;
 		goto Away;
 	}
-	if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-		    &UltraVnicChannelProtocolGuid, sizeof(GUID))) {
+	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+		    UltraVnicChannelProtocolGuid)) {
 		uislib_client_inject_del_vnic(busNo, devNo);
 		goto Away;
-	} else if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-			   &UltraVhbaChannelProtocolGuid, sizeof(GUID))) {
+	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+			   UltraVhbaChannelProtocolGuid)) {
 		uislib_client_inject_del_vhba(busNo, devNo);
 		goto Away;
 	}
@@ -331,12 +331,12 @@ chipset_device_pause(ulong busNo, ulong devNo)
 		rc = -1;
 		goto Away;
 	}
-	if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-		    &UltraVnicChannelProtocolGuid, sizeof(GUID))) {
+	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+		    UltraVnicChannelProtocolGuid)) {
 		rc = uislib_client_inject_pause_vnic(busNo, devNo);
 		goto Away;
-	} else if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-			   &UltraVhbaChannelProtocolGuid, sizeof(GUID))) {
+	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+			   UltraVhbaChannelProtocolGuid)) {
 		rc = uislib_client_inject_pause_vhba(busNo, devNo);
 		goto Away;
 	}
@@ -364,12 +364,12 @@ chipset_device_resume(ulong busNo, ulong devNo)
 		rc = -1;
 		goto Away;
 	}
-	if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-		    &UltraVnicChannelProtocolGuid, sizeof(GUID))) {
+	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+		    UltraVnicChannelProtocolGuid)) {
 		rc = uislib_client_inject_resume_vnic(busNo, devNo);
 		goto Away;
-	} else if (!memcmp(&devInfo.chanInfo.channelTypeGuid,
-			   &UltraVhbaChannelProtocolGuid, sizeof(GUID))) {
+	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+			   UltraVhbaChannelProtocolGuid)) {
 		rc = uislib_client_inject_resume_vhba(busNo, devNo);
 		goto Away;
 	}

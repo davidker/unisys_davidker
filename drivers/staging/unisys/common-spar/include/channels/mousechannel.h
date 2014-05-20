@@ -22,9 +22,9 @@
 
 /* {ADDF07D4-94A9-46e2-81C3-61ABCDBDBD87} */
 #define ULTRA_MOUSE_CHANNEL_PROTOCOL_GUID  \
-	{0xaddf07d4, 0x94a9, 0x46e2, \
-		{0x81, 0xc3, 0x61, 0xab, 0xcd, 0xbd, 0xbd, 0x87} }
-static const GUID UltraMouseChannelProtocolGuid =
+	UUID_LE(0xaddf07d4, 0x94a9, 0x46e2, \
+		0x81, 0xc3, 0x61, 0xab, 0xcd, 0xbd, 0xbd, 0x87)
+static const uuid_le UltraMouseChannelProtocolGuid =
 	ULTRA_MOUSE_CHANNEL_PROTOCOL_GUID;
 #define ULTRA_MOUSE_CHANNEL_PROTOCOL_SIGNATURE ULTRA_CHANNEL_PROTOCOL_SIGNATURE
 
@@ -75,7 +75,7 @@ ULTRA_MOUSE_init_channel(ULTRA_MOUSE_CHANNEL_PROTOCOL *x)
 	x->ChannelHeader.HeaderSize = sizeof(x->ChannelHeader);
 	x->ChannelHeader.Size = MOUSE_CH_SIZE;
 	x->ChannelHeader.Type = UltraMouseChannelProtocolGuid;
-	x->ChannelHeader.ZoneGuid = Guid0;
+	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
 	SignalInit(x, inputReportQ, inputReport, ULTRA_INPUTREPORT, 0, 0);
 	x->ChannelHeader.oChannelSpace =
 	    offsetof(ULTRA_MOUSE_CHANNEL_PROTOCOL, inputReportQ);

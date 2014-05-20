@@ -66,7 +66,7 @@ static struct visor_channeltype_descriptor visorvideo_channel_types[] = {
 	{ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_GUID,
 	 "framebuffermemory",
 	 CONSOLEFRAMEBUFFERMEMORY_CH_SIZE, CONSOLEFRAMEBUFFERMEMORY_CH_SIZE},
-	{GUID0, NULL, 0, 0}
+	{NULL_UUID_LE, NULL, 0, 0}
 };
 
 /** This is used to tell the visor bus driver which types of visor devices

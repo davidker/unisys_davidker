@@ -15,6 +15,8 @@
  * details.
  */
 
+#include <linux/uuid.h>
+
 #include "visorbus_private.h"
 #include "businst_attr.h"
 #include "channel_attr.h"
@@ -91,7 +93,7 @@ static void chipset_device_create(ulong busNo, ulong devNo);
 static void chipset_device_destroy(ulong busNo, ulong devNo);
 static void chipset_device_pause(ulong busNo, ulong devNo);
 static void chipset_device_resume(ulong busNo, ulong devNo);
-static int chipset_get_channel_info(GUID typeGuid, ulong *minSize,
+static int chipset_get_channel_info(uuid_le typeGuid, ulong *minSize,
 				    ulong *maxSize);
 
 /** These functions are implemented herein, and are called by the chipset
@@ -138,7 +140,7 @@ visorbus_uevent(struct device *xdev, struct kobj_uevent_env *env)
 static int
 visorbus_match(struct device *xdev, struct device_driver *xdrv)
 {
-	GUID channel_type;
+	uuid_le channel_type;
 	int rc = 0;
 	int i;
 	struct visor_device *dev;
@@ -146,7 +148,7 @@ visorbus_match(struct device *xdev, struct device_driver *xdrv)
 
 	dev = to_visor_device(xdev);
 	drv = to_visor_driver(xdrv);
-	channel_type = visorchannel_get_GUID(dev->visorchannel);
+	channel_type = visorchannel_get_uuid(dev->visorchannel);
 	if (visorbus_forcematch) {
 		rc = 1;
 		goto Away;
@@ -156,9 +158,10 @@ visorbus_match(struct device *xdev, struct device_driver *xdrv)
 
 	if (drv->channel_types == NULL)
 		goto Away;
-	for (i = 0; !(STRUCTSEQUAL(drv->channel_types[i].guid, Guid0) ||
-		      drv->channel_types[i].name == NULL); i++)
-		if (STRUCTSEQUAL(drv->channel_types[i].guid, channel_type)) {
+	for (i = 0; (uuid_le_cmp(drv->channel_types[i].guid, NULL_UUID_LE) != 0)
+			|| (drv->channel_types[i].name == NULL); i++)
+		if (uuid_le_cmp(drv->channel_types[i].guid,
+			channel_type) == 0) {
 			rc = i + 1;
 			goto Away;
 		}
@@ -293,7 +296,6 @@ static ssize_t BUSINST_ATTR_partitionGuid(struct visorbus_devdata *businst,
 					  char *buf) {
 	VISORCHIPSET_BUS_INFO busInfo;
 	int len = 0;
-	char s[99];
 	if (businst && visorchipset_get_bus_info(businst->devno, &busInfo))
 		len = snprintf(buf, PAGE_SIZE, "{%pUb}\n",
 			       &busInfo.partitionGuid);
@@ -1292,7 +1294,7 @@ create_bus_instance(int id)
 	    (busInfo.chanInfo.nChannelBytes > 0)) {
 		HOSTADDRESS channelAddr = busInfo.chanInfo.channelAddr;
 		ulong nChannelBytes = (ulong) busInfo.chanInfo.nChannelBytes;
-		GUID channelTypeGuid = busInfo.chanInfo.channelTypeGuid;
+		uuid_le channelTypeGuid = busInfo.chanInfo.channelTypeGuid;
 		devdata->chan = visorchannel_create(channelAddr,
 						    nChannelBytes,
 						    channelTypeGuid);
@@ -1710,7 +1712,7 @@ chipset_device_resume(ulong busNo, ulong devNo)
 }
 
 struct channel_size_info {
-	GUID guid;
+	uuid_le guid;
 	ulong min_size;
 	ulong max_size;
 };
@@ -1724,9 +1726,9 @@ find_channel_size(struct device_driver *xdrv, void *xInfo)
 
 	if (drv->channel_types == NULL)
 		return 0;
-	for (i = 0; !(STRUCTSEQUAL(drv->channel_types[i].guid, Guid0) ||
-		      drv->channel_types[i].name == NULL); i++)
-		if (STRUCTSEQUAL(drv->channel_types[i].guid, info->guid)) {
+	for (i = 0; (uuid_le_cmp(drv->channel_types[i].guid, NULL_UUID_LE) != 0)
+			|| (drv->channel_types[i].name == NULL); i++)
+		if (uuid_le_cmp(drv->channel_types[i].guid, info->guid) == 0) {
 			info->min_size = drv->channel_types[i].min_size;
 			info->max_size = drv->channel_types[i].max_size;
 		}
@@ -1734,7 +1736,7 @@ find_channel_size(struct device_driver *xdrv, void *xInfo)
 }
 
 static int
-chipset_get_channel_info(GUID typeGuid, ulong *minSize, ulong *maxSize)
+chipset_get_channel_info(uuid_le typeGuid, ulong *minSize, ulong *maxSize)
 {
 	struct channel_size_info info;
 	int res = 0;
