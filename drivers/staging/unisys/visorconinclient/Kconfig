@@ -1,0 +1,10 @@
+#
+# Unisys visorconinclient configuration
+#
+
+config UNISYS_VISORCONINCLIENT
+	tristate "Unisys visorconinclient driver"
+	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORCHANNEL && UNISYS_VISORBUS && FB
+	---help---
+	If you say Y here, you will enable the Unisys visorconinclient driver.
+

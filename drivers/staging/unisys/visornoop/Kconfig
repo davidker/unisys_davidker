@@ -1,0 +1,10 @@
+#
+# Unisys visornoop configuration
+#
+
+config UNISYS_VISORNOOP
+	tristate "Unisys visornoop driver"
+	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORBUS
+	---help---
+	If you say Y here, you will enable the Unisys visornoop driver.
+

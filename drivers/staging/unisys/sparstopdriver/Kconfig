@@ -1,0 +1,10 @@
+#
+# Unisys sparstop configuration
+#
+
+config UNISYS_SPARSTOP
+	tristate "Unisys sparstop driver"
+	depends on UNISYSSPAR
+	---help---
+	If you say Y here, you will enable the Unisys sparstop driver.
+

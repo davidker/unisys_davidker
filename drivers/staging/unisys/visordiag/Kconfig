@@ -1,0 +1,10 @@
+#
+# Unisys visordiag configuration
+#
+
+config UNISYS_VISORDIAG
+	tristate "Unisys visordiag driver"
+	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORCHANNEL
+	---help---
+	If you say Y here, you will enable the Unisys visordiag driver.
+

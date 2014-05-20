@@ -1,0 +1,10 @@
+#
+# Unisys visorserial configuration
+#
+
+config UNISYS_VISORSERIAL
+	tristate "Unisys visorserial driver"
+	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORCHANNEL
+	---help---
+	If you say Y here, you will enable the Unisys visorserial driver.
+
