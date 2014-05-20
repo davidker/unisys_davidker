@@ -16,16 +16,17 @@
 #ifndef __CONSOLEFRAMEBUFFERMEMORY_H__
 #define __CONSOLEFRAMEBUFFERMEMORY_H__
 
+#include <linux/uuid.h>
+
 #include "commontypes.h"
 #include "channel.h"
 
 /* {F2DB76C2-1C43-4f24-A5DA-A28EE66A7480} */
 #define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_GUID	\
-	{0xf2db76c2, 0x1c43, 0x4f24,					\
-		{0xa5, 0xda, 0xa2, 0x8e, 0xe6, 0x6a, 0x74, 0x80}	\
-	}
+	UUID_LE(0xf2db76c2, 0x1c43, 0x4f24,				\
+		0xa5, 0xda, 0xa2, 0x8e, 0xe6, 0x6a, 0x74, 0x80)
 
-static const GUID UltraConsoleFrameBufferMemoryChannelProtocolGuid =
+static const uuid_le UltraConsoleFrameBufferMemoryChannelProtocolGuid =
 	ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_GUID;
 
 #define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_SIGNATURE \

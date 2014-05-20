@@ -16,6 +16,8 @@
 #ifndef __CONSOLEFRAMEBUFFER_H__
 #define __CONSOLEFRAMEBUFFER_H__
 
+#include <linux/uuid.h>
+
 #include "commontypes.h"
 #include "channel.h"
 /* Needed for BOCHS_VIDEO_STATE */
@@ -45,9 +47,9 @@ typedef struct _VIDEO_POINTER_ATTRIBUTES {
 
 /* {230A065A-39D8-4917-9F05-3ECC5CBF4A4F} */
 #define ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL_GUID     \
-	{0x230a065a, 0x39d8, 0x4917, \
-		{0x9f, 0x5, 0x3e, 0xcc, 0x5c, 0xbf, 0x4a, 0x4f} }
-static const GUID UltraConsoleFramebufferChannelProtocolGuid =
+	UUID_LE(0x230a065a, 0x39d8, 0x4917, \
+		0x9f, 0x5, 0x3e, 0xcc, 0x5c, 0xbf, 0x4a, 0x4f)
+static const uuid_le UltraConsoleFramebufferChannelProtocolGuid =
 	ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL_GUID;
 
 #define ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL_SIGNATURE \
@@ -515,7 +517,7 @@ ULTRA_CONSOLEFRAMEBUFFER_init_channel(ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL 
 	x->Header.HeaderSize = sizeof(x->Header);
 	x->Header.Size = CONSOLEFRAMEBUFFER_CH_SIZE;
 	x->Header.Type = UltraConsoleFramebufferChannelProtocolGuid;
-	x->Header.ZoneGuid = Guid0;
+	x->Header.ZoneGuid = NULL_UUID_LE;
 
 	SignalInit(x, ImageBatchQ, ImageBatch,
 		   CONSOLEFRAMEBUFFER_IMAGEBATCH, 0, 0);

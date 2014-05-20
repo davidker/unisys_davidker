@@ -16,15 +16,17 @@
 #ifndef __KEYBOARDCHANNEL_H__
 #define __KEYBOARDCHANNEL_H__
 
+#include <linux/uuid.h>
+
 #include "commontypes.h"
 #include "channel.h"
 #include "ultrainputreport.h"
 
 /* {C73416D0-B0B8-44af-B304-9D2AE99F1B3D} */
 #define ULTRA_KEYBOARD_CHANNEL_PROTOCOL_GUID				\
-	{0xc73416d0, 0xb0b8, 0x44af,					\
-		{ 0xb3, 0x4, 0x9d, 0x2a, 0xe9, 0x9f, 0x1b, 0x3d } }
-static const GUID UltraKeyboardChannelProtocolGuid =
+	UUID_LE(0xc73416d0, 0xb0b8, 0x44af,				\
+		0xb3, 0x4, 0x9d, 0x2a, 0xe9, 0x9f, 0x1b, 0x3d)
+static const uuid_le UltraKeyboardChannelProtocolGuid =
 	ULTRA_KEYBOARD_CHANNEL_PROTOCOL_GUID;
 #define ULTRA_KEYBOARD_CHANNEL_PROTOCOL_SIGNATURE \
 	ULTRA_CHANNEL_PROTOCOL_SIGNATURE
@@ -89,7 +91,7 @@ ULTRA_KEYBOARD_init_channel(ULTRA_KEYBOARD_CHANNEL_PROTOCOL *x)
 	x->ChannelHeader.HeaderSize = sizeof(x->ChannelHeader);
 	x->ChannelHeader.Size = KEYBOARD_CH_SIZE;
 	x->ChannelHeader.Type = UltraKeyboardChannelProtocolGuid;
-	x->ChannelHeader.ZoneGuid = Guid0;
+	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
 	SignalInit(x, inputReportQ, inputReport, ULTRA_INPUTREPORT, 0, 0);
 	x->ChannelHeader.oChannelSpace =
 	    offsetof(ULTRA_KEYBOARD_CHANNEL_PROTOCOL, inputReportQ);

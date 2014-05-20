@@ -35,19 +35,19 @@
 /* {3CD6E705-D6A2-4aa5-AD5C-7B08889DFFE2} */
 
 #define ULTRA_CONSOLELEGACYVIDEO_CHANNEL_PROTOCOL_GUID		\
-	{0x3cd6e705, 0xd6a2, 0x4aa5,				\
-		{0xad, 0x5c, 0x7b, 0x8, 0x88, 0x9d, 0xff, 0xe2} }
+	UUID_LE(0x3cd6e705, 0xd6a2, 0x4aa5,				\
+		0xad, 0x5c, 0x7b, 0x8, 0x88, 0x9d, 0xff, 0xe2)
 
 
 #define ULTRA_CONSOLEVIDEO_CHANNEL_PROTOCOL_GUID \
 	ULTRA_CONSOLELEGACYVIDEO_CHANNEL_PROTOCOL_GUID
-static const GUID UltraConsoleVideoChannelProtocolGuid =
+static const uuid_le UltraConsoleVideoChannelProtocolGuid =
 	ULTRA_CONSOLEVIDEO_CHANNEL_PROTOCOL_GUID;
 
 #define ULTRA_CONSOLEVIDEO_PRIMARY_CHANNEL_PROTOCOL_GUID	\
-	{0xbae361b7, 0x820e, 0x4794,				\
-		{0x89, 0x2e, 0x23, 0xcc, 0x1b, 0xbc, 0xb7, 0x88} }
-static const GUID UltraConsoleVideoPrimaryChannelProtocolGuid =
+	UUID_LE(0xbae361b7, 0x820e, 0x4794,				\
+		0x89, 0x2e, 0x23, 0xcc, 0x1b, 0xbc, 0xb7, 0x88)
+static const uuid_le UltraConsoleVideoPrimaryChannelProtocolGuid =
 	ULTRA_CONSOLEVIDEO_PRIMARY_CHANNEL_PROTOCOL_GUID;
 
 #define ULTRA_CONSOLEVIDEO_CHANNEL_PROTOCOL_SIGNATURE \

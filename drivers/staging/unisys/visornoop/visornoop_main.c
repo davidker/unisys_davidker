@@ -52,7 +52,7 @@ static struct visor_channeltype_descriptor visornoop_channel_types[] = {
 	 */
 	{ ULTRA_CONTROLDIRECTOR_CHANNEL_PROTOCOL_GUID,
 	  "controldirector", 1, ULONG_MAX },
-	{ GUID0, NULL, 0, 0 }
+	{ NULL_UUID_LE, NULL, 0, 0 }
 };
 
 /** This is used to tell the visor bus driver which types of visor devices

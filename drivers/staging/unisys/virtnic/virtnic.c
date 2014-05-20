@@ -41,6 +41,7 @@
 #include <linux/tcp.h>
 #include <linux/ip.h>
 #include <linux/proc_fs.h>
+#include <linux/uuid.h>
 
 #include "virtpci.h"
 #include "version.h"
@@ -189,7 +190,7 @@ struct virtnic_info {
 					   netif_stop_queue() */
 	int lower_threshold_net_xmits;	/* high water mark for calling
 					   netif_wake_queue() */
-	GUID zoneGuid;			/* specifies the zone for the switch in
+	uuid_le zoneGuid;		/* specifies the zone for the switch in
 					   which this VNIC resides  */
 	struct uiscmdrsp *cmdrsp_rcv;	/* cmdrsp_rcv is used for
 					   posting/unposting rcv buffers */
@@ -2465,20 +2466,7 @@ zone_proc_read(struct seq_file *file, void *v)
 	struct virtnic_info *vnicinfo;
 
 	vnicinfo = netdev_priv(netdev);
-	seq_printf(file,
-		   "{%-8.8lx-%-4.4x-%-4.4x-%-2.2x%-2.2x%-2.2x%-2.2x%-2.2x%-2.2x%-2.2x%-2.2x}",
-		   (ulong) vnicinfo->zoneGuid.data1,
-		   vnicinfo->zoneGuid.data2, vnicinfo->zoneGuid.data3,
-		   vnicinfo->zoneGuid.data4[0],
-		   vnicinfo->zoneGuid.data4[1],
-		   vnicinfo->zoneGuid.data4[2],
-		   vnicinfo->zoneGuid.data4[3],
-		   vnicinfo->zoneGuid.data4[4],
-		   vnicinfo->zoneGuid.data4[5],
-		   vnicinfo->zoneGuid.data4[6],
-		   vnicinfo->zoneGuid.data4[7]);
-
-	seq_puts(file, "\n");
+	seq_printf(file, "%pUL\n", &(vnicinfo->zoneGuid));
 
 	return 0;
 }

@@ -533,7 +533,7 @@ create_visor_device(U64 addr)
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE;
 	char s[99];
-	GUID guid = ULTRA_CONSOLE_CHANNEL_PROTOCOL_GUID;
+	uuid_le guid = ULTRA_CONSOLE_CHANNEL_PROTOCOL_GUID;
 
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	visorchannel =
