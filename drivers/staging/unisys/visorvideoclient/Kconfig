@@ -1,0 +1,10 @@
+#
+# Unisys visorvideoclient configuration
+#
+
+config UNISYS_VISORVIDEOCLIENT
+	tristate "Unisys visorvideoclient driver"
+	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORBUS
+	---help---
+	If you say Y here, you will enable the Unisys visorvideoclient driver.
+

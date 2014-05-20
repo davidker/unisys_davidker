@@ -1,0 +1,10 @@
+#
+# Unisys visorclientbus configuration
+#
+
+config UNISYS_VISORCLIENTBUS
+	tristate "Unisys visorclientbus driver"
+	depends on UNISYSSPAR && UNISYS_VISORCHIPSET && UNISYS_UISLIB
+	---help---
+	If you say Y here, you will enable the Unisys visorclientbus driver.
+
