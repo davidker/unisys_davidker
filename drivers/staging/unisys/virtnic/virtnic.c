@@ -115,8 +115,6 @@ static struct virtpci_driver virtnic_driver = {
 	.name = "uisvirtnic",
 	.version = VERSION,
 	.vertag = NULL,
-	.build_date = __DATE__,
-	.build_time = __TIME__,
 	.id_table = virtnic_id_table,
 	.probe = virtnic_probe,
 	.remove = virtnic_remove,
@@ -2272,11 +2270,6 @@ info_proc_read(struct file *file, char __user *buf,
 
 	length += sprintf(vbuf + length, "CHANSOCK is not defined.\n");
 
-	length +=
-	    sprintf(vbuf + length, "\nModule build: Date:%s Time:%s\n", __DATE__,
-		    __TIME__);
-
-	length += sprintf(vbuf + length, "\n");
 	/* for each vnic channel */
 	/* dump out channel specific data */
 	for (i = 0; i < VIRTNICSOPENMAX; i++) {
@@ -2481,7 +2474,6 @@ virtnic_mod_init(void)
 	int error, i;
 
 	LOGINF("entering virtnic_mod_init");
-	LOGINF("Module build: Date:%s Time:%s...\n", __DATE__, __TIME__);
 
 	/* ASSERT RCVPOST_BUF_SIZE < 4K */
 	if (RCVPOST_BUF_SIZE > PI_PAGE_SIZE) {

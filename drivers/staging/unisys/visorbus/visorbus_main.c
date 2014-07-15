@@ -25,6 +25,7 @@
 #include "consolechannel.h"	/* for serialloopbacktest */
 #include "vbuschannel.h"
 #include "guestlinuxdebug.h"
+#include "vbusdeviceinfo.h"
 /* These forward declarations are required since our drivers are out-of-tree.
  * The structures referenced are kernel-private and are not in the headers, but
  * it is impossible to make a functioning bus driver without them.
@@ -368,7 +369,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 					       ChpInfo),
 				      &devInfo, sizeof(devInfo));
 		if (x >= 0) {
-			x = VBUSCHANNEL_devInfoToStringBuffer
+			x = vbuschannel_devinfo_to_string 
 			    (&devInfo, p, remain, -1);
 			p += x;
 			remain -= x;
@@ -378,7 +379,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 					       BusInfo),
 				      &devInfo, sizeof(devInfo));
 		if (x >= 0) {
-			x = VBUSCHANNEL_devInfoToStringBuffer
+			x = vbuschannel_devinfo_to_string
 			    (&devInfo, p, remain, -1);
 			p += x;
 			remain -= x;
@@ -390,7 +391,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 			x = visorchannel_read(businst->chan,
 					      off, &devInfo, sizeof(devInfo));
 			if (x >= 0) {
-				x = VBUSCHANNEL_devInfoToStringBuffer
+				x = vbuschannel_devinfo_to_string
 				    (&devInfo, p, remain, i);
 				p += x;
 				remain -= x;
@@ -1052,7 +1053,6 @@ initVbusChannel(VISORCHANNEL *chan)
 				 POSTCODE_SEVERITY_ERR);
 		goto Away;
 	}
-	ULTRA_VBUS_init_channel(x, allocatedBytes);
 
 	if (visorchannel_write
 	    (chan, 0, x, sizeof(ULTRA_VBUS_CHANNEL_PROTOCOL)) < 0) {
@@ -1230,8 +1230,7 @@ fix_vbus_devInfo(struct visor_device *visordev)
 	}
 
 	BusDeviceInfo_Init(&devInfo, chanTypeName,
-			   visordrv->name, visordrv->version, visordrv->vertag,
-			   visordrv->build_date, visordrv->build_time);
+			   visordrv->name, visordrv->version, visordrv->vertag);
 	write_vbus_devInfo(devdata->chan,
 			   &devdata->vbus_hdrInfo, &devInfo, devNo);
 
@@ -1818,7 +1817,7 @@ visorbus_init(void)
 
 	BusDeviceInfo_Init(&ClientBus_DriverInfo,
 			   "clientbus", MYDRVNAME,
-			   VERSION, NULL, __DATE__, __TIME__);
+			   VERSION, NULL);
 
 	/* process module options */
 
