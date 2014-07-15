@@ -1200,13 +1200,6 @@ new_message_to_host(void *context, DIAG_CHANNEL_EVENT *event)
 	}
 }
 
-static int
-visordiag_extract_event(char *s, int n, DIAG_CHANNEL_EVENT *event)
-{
-	return visordiag_extract_event_ex(s, n, event, SYSLOG_PRI_INFO);
-}
-EXPORT_SYMBOL_GPL(visordiag_extract_event);
-
 static void
 host_side_disappeared(struct visordiag_devdata *devdata)
 {
