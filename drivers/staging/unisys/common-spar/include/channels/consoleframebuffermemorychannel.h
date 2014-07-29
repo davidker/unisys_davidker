@@ -55,7 +55,7 @@ static const uuid_le UltraConsoleFrameBufferMemoryChannelProtocolGuid =
 #pragma pack(push, 1)		/* both GCC and VC now allow this pragma */
 typedef struct _ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL {
 	ULTRA_CHANNEL_PROTOCOL Header;
-	U8 FrameBuffer[1024 * 1024 * 3]; /* frame buffer big enough
+	u8 FrameBuffer[1024 * 1024 * 3]; /* frame buffer big enough
 					  * for 1024x768x32 */
 } ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL;
 

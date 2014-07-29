@@ -60,9 +60,9 @@ static const uuid_le UltraKeyboardChannelProtocolGuid =
 typedef struct _ULTRA_KEYBOARD_CHANNEL_PROTOCOL {
 	ULTRA_CHANNEL_PROTOCOL ChannelHeader;	/* /< Generic Channel Protocol
 						 * Header */
-	U32 nInputReports;	/* /< max # entries in <inputReport> */
+	u32 nInputReports;	/* /< max # entries in <inputReport> */
 	struct {
-		U32 yieldToBoot:1; /**< This is a convenience for the EFI demo
+		u32 yieldToBoot:1; /**< This is a convenience for the EFI demo
 				    *   environment only.  This bit is set to 1
 				    *   by the client guest as a signal to to
 				    *   the EFI boot partition (who is NOT the
