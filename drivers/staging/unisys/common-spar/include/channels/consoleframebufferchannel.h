@@ -23,24 +23,24 @@
 /* Needed for BOCHS_VIDEO_STATE */
 #define BX_SUPPORT_VBE      1
 #define BX_SUPPORT_CLGD54XX 0
-typedef U8 Bit8u;
-typedef U16 Bit16u;
-typedef U32 bx_bool;
-typedef U32 Bit32u;
-typedef U64 Bit64u;
+typedef u8 Bit8u;
+typedef u16 Bit16u;
+typedef u32 bx_bool;
+typedef u32 Bit32u;
+typedef u64 Bit64u;
 
 
 #ifdef EFIX64
 /* TODO64: Can this be included from .h   */
 typedef struct _VIDEO_POINTER_ATTRIBUTES {
-	U64 Flags;
-	U64 Width;
-	U64 Height;
-	U64 WidthInBytes;
-	U64 Enable;
-	U16 Column;
-	U16 Row;
-	U8 Pixels[1];
+	u64 Flags;
+	u64 Width;
+	u64 Height;
+	u64 WidthInBytes;
+	u64 Enable;
+	u16 Column;
+	u16 Row;
+	u8 Pixels[1];
 } VIDEO_POINTER_ATTRIBUTES, *PVIDEO_POINTER_ATTRIBUTES;
 
 #endif	/*  */
@@ -88,14 +88,14 @@ static const uuid_le UltraConsoleFramebufferChannelProtocolGuid =
  *  @ingroup coretypes
  */
 typedef struct CONSOLEFRAMEBUFFER_TimeOfDay  {
-	U16 month;
-	U16 day;
-	U16 year;
-	U16 hour;
-	U16 minute;
-	U16 second;
-	U16 reserved1;		/* make it 64-bit friendly */
-	U16 reserved2;
+	u16 month;
+	u16 day;
+	u16 year;
+	u16 hour;
+	u16 minute;
+	u16 second;
+	u16 reserved1;		/* make it 64-bit friendly */
+	u16 reserved2;
 } CONSOLEFRAMEBUFFER_TIMEOFDAY;
 
 /** Describes to the remote partition desktop client how the video
@@ -118,10 +118,10 @@ typedef enum  { compress_NONE = 0, /*< not compressed */
  *  @ingroup coretypes
  */
 typedef struct CONSOLEFRAMEBUFFER_PaletteEntry  {
-	U8 red;
-	U8 green;
-	U8 blue;
-	U8 alpha;
+	u8 red;
+	u8 green;
+	u8 blue;
+	u8 alpha;
 } CONSOLEFRAMEBUFFER_PALETTEENTRY;
 
 /** Identifies a rectangular region within the video frame buffer of video
@@ -129,10 +129,10 @@ typedef struct CONSOLEFRAMEBUFFER_PaletteEntry  {
  *  @ingroup coretypes
  */
 typedef struct CONSOLEFRAMEBUFFER_ChangeRectangle  {
-	U16 x;	   /**< x-coordinate of pixel at upper-left corner of rect */
-	U16 y;	   /**< y-coordinate of pixel at upper-left corner of rect */
-	U16 width;/**< width of rectangle  (in pixels) */
-	U16 height;
+	u16 x;	   /**< x-coordinate of pixel at upper-left corner of rect */
+	u16 y;	   /**< y-coordinate of pixel at upper-left corner of rect */
+	u16 width;/**< width of rectangle  (in pixels) */
+	u16 height;
 		   /**< height of rectangle (in scanlines) */
 } CONSOLEFRAMEBUFFER_CHANGERECTANGLE;
 
@@ -151,19 +151,19 @@ typedef struct CONSOLEFRAMEBUFFER_Palette  {
  *  @ingroup coretypes
  */
 typedef struct _CONSOLEFRAMEBUFFER_GRAPHICSCURSOR  {
-	U32 cursorDataBytes; /*< \#valid bytes in cursorData below */
-	U8 graphicsCursorInUse;
+	u32 cursorDataBytes; /*< \#valid bytes in cursorData below */
+	u8 graphicsCursorInUse;
 			      /*< TRUE iff cursorData (below) is valid */
-	U8 graphicsCursorVisible;
+	u8 graphicsCursorVisible;
 			      /*< TRUE iff cursorData (below) indicates
 			       *   that the cursor is visible */
-	U8 reserved[2];
+	u8 reserved[2];
 
     /** Bits describing the cursor shape.
      *  This is a data blob that needs to be passed to the remote client.
      */
 	union CursorShapeData  {
-		U8 cursorData[CONSOLEFRAMEBUFFER_MAXCURSORSHAPEBYTES];
+		u8 cursorData[CONSOLEFRAMEBUFFER_MAXCURSORSHAPEBYTES];
 	} u;
 } CONSOLEFRAMEBUFFER_GRAPHICSCURSOR;
 
@@ -171,21 +171,21 @@ typedef struct _CONSOLEFRAMEBUFFER_GRAPHICSCURSOR  {
  *  @ingroup coretypes
  */
 typedef struct CONSOLEFRAMEBUFFER_TextCursor  {
-	U8 textCursorInUse; /*< TRUE iff text cursor is visible */
-	U8 characterCellHeight;
+	u8 textCursorInUse; /*< TRUE iff text cursor is visible */
+	u8 characterCellHeight;
 			     /*< height of each text char in (pixels) */
-	U8 reserved[6];
-	U32 row;	     /*< row number on the screen (0..49) */
-	U32 column;	     /*< column number on the screen (0..131) */
-	U32 startScanLine;   /*< start scan line defining text cursor shape
+	u8 reserved[6];
+	u32 row;	     /*< row number on the screen (0..49) */
+	u32 column;	     /*< column number on the screen (0..131) */
+	u32 startScanLine;   /*< start scan line defining text cursor shape
 			      *   (pixel relative from char cell top)
 			      *   (0..31)
 			      */
-	U32 endScanLine;    /*< end scan line defining text cursor shape
+	u32 endScanLine;    /*< end scan line defining text cursor shape
 			      *   (pixel relative from char cell top)
 			      *   (0..31)
 			      */
-	U8 reserved2[104];
+	u8 reserved2[104];
 } CONSOLEFRAMEBUFFER_TEXTCURSOR;
 
 /* Specifies features that are supported by the firmware.
@@ -193,38 +193,38 @@ typedef struct CONSOLEFRAMEBUFFER_TextCursor  {
  *  @ingroup coretypes
  */
 typedef struct CONSOLEFRAMEBUFFER_FirmwareFeatures  {
-	U32 res1024x768:1;	/* supports 1024x768 resolutions */
-	U32 feature02:1;	/* available */
-	U32 feature03:1;	/* available */
-	U32 feature04:1;	/* available */
-	U32 feature05:1;	/* available */
-	U32 feature06:1;	/* available */
-	U32 feature07:1;	/* available */
-	U32 feature08:1;	/* available */
-	U32 feature09:1;	/* available */
-	U32 feature10:1;	/* available */
-	U32 feature11:1;	/* available */
-	U32 feature12:1;	/* available */
-	U32 feature13:1;	/* available */
-	U32 feature14:1;	/* available */
-	U32 feature15:1;	/* available */
-	U32 feature16:1;	/* available */
-	U32 feature17:1;	/* available */
-	U32 feature18:1;	/* available */
-	U32 feature19:1;	/* available */
-	U32 feature20:1;	/* available */
-	U32 feature21:1;	/* available */
-	U32 feature22:1;	/* available */
-	U32 feature23:1;	/* available */
-	U32 feature24:1;	/* available */
-	U32 feature25:1;	/* available */
-	U32 feature26:1;	/* available */
-	U32 feature27:1;	/* available */
-	U32 feature28:1;	/* available */
-	U32 feature29:1;	/* available */
-	U32 feature30:1;	/* available */
-	U32 feature31:1;	/* available */
-	U32 feature32:1;	/* available */
+	u32 res1024x768:1;	/* supports 1024x768 resolutions */
+	u32 feature02:1;	/* available */
+	u32 feature03:1;	/* available */
+	u32 feature04:1;	/* available */
+	u32 feature05:1;	/* available */
+	u32 feature06:1;	/* available */
+	u32 feature07:1;	/* available */
+	u32 feature08:1;	/* available */
+	u32 feature09:1;	/* available */
+	u32 feature10:1;	/* available */
+	u32 feature11:1;	/* available */
+	u32 feature12:1;	/* available */
+	u32 feature13:1;	/* available */
+	u32 feature14:1;	/* available */
+	u32 feature15:1;	/* available */
+	u32 feature16:1;	/* available */
+	u32 feature17:1;	/* available */
+	u32 feature18:1;	/* available */
+	u32 feature19:1;	/* available */
+	u32 feature20:1;	/* available */
+	u32 feature21:1;	/* available */
+	u32 feature22:1;	/* available */
+	u32 feature23:1;	/* available */
+	u32 feature24:1;	/* available */
+	u32 feature25:1;	/* available */
+	u32 feature26:1;	/* available */
+	u32 feature27:1;	/* available */
+	u32 feature28:1;	/* available */
+	u32 feature29:1;	/* available */
+	u32 feature30:1;	/* available */
+	u32 feature31:1;	/* available */
+	u32 feature32:1;	/* available */
 } CONSOLEFRAMEBUFFER_FIRMWAREFEATURES;
 
 /* Specifies features that are supported by the host video driver.
@@ -232,48 +232,48 @@ typedef struct CONSOLEFRAMEBUFFER_FirmwareFeatures  {
  *  @ingroup coretypes
  */
 typedef struct CONSOLEFRAMEBUFFER_HostDriverFeatures  {
-	U32 feature01:1;	/* available */
-	U32 simpleRects:1;	 /*< host driver will indicate video
+	u32 feature01:1;	/* available */
+	u32 simpleRects:1;	 /*< host driver will indicate video
 				   *   changes by inserting rectangles into
 				   *   the RectsQ queue within the channel
 				   *   (actual data is in Rects)
 				   */
-	U32 imageBatches:1;	 /*< host driver will indicate video
+	u32 imageBatches:1;	 /*< host driver will indicate video
 				   *   changes by inserting image batches into
 				   *   the ImageBatchQ queue within the channel
 				   *   (actual data is in ImageBatch)
 				   */
-	U32 crashDumpReqest:1;	 /*< hostRequestCode_crashDump supported */
-	U32 rebootRequest:1;	 /*< hostRequestCode_reboot supported */
-	U32 timeOfDay:1;	 /*< CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA
+	u32 crashDumpReqest:1;	 /*< hostRequestCode_crashDump supported */
+	u32 rebootRequest:1;	 /*< hostRequestCode_reboot supported */
+	u32 timeOfDay:1;	 /*< CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA
 				   *   #timeOfDay is filled in */
-	U32 refreshRequest:1;	 /*< hostRequestCode_refreshRegistry
+	u32 refreshRequest:1;	 /*< hostRequestCode_refreshRegistry
 				   *   supported */
-	U32 res1024x768:1;	/* supports 1024x768 resolutions */
-	U32 feature09:1;	/* available */
-	U32 feature10:1;	/* available */
-	U32 feature11:1;	/* available */
-	U32 feature12:1;	/* available */
-	U32 feature13:1;	/* available */
-	U32 feature14:1;	/* available */
-	U32 feature15:1;	/* available */
-	U32 feature16:1;	/* available */
-	U32 feature17:1;	/* available */
-	U32 feature18:1;	/* available */
-	U32 feature19:1;	/* available */
-	U32 feature20:1;	/* available */
-	U32 feature21:1;	/* available */
-	U32 feature22:1;	/* available */
-	U32 feature23:1;	/* available */
-	U32 feature24:1;	/* available */
-	U32 feature25:1;	/* available */
-	U32 feature26:1;	/* available */
-	U32 feature27:1;	/* available */
-	U32 feature28:1;	/* available */
-	U32 feature29:1;	/* available */
-	U32 feature30:1;	/* available */
-	U32 feature31:1;	/* available */
-	U32 feature32:1;	/* available */
+	u32 res1024x768:1;	/* supports 1024x768 resolutions */
+	u32 feature09:1;	/* available */
+	u32 feature10:1;	/* available */
+	u32 feature11:1;	/* available */
+	u32 feature12:1;	/* available */
+	u32 feature13:1;	/* available */
+	u32 feature14:1;	/* available */
+	u32 feature15:1;	/* available */
+	u32 feature16:1;	/* available */
+	u32 feature17:1;	/* available */
+	u32 feature18:1;	/* available */
+	u32 feature19:1;	/* available */
+	u32 feature20:1;	/* available */
+	u32 feature21:1;	/* available */
+	u32 feature22:1;	/* available */
+	u32 feature23:1;	/* available */
+	u32 feature24:1;	/* available */
+	u32 feature25:1;	/* available */
+	u32 feature26:1;	/* available */
+	u32 feature27:1;	/* available */
+	u32 feature28:1;	/* available */
+	u32 feature29:1;	/* available */
+	u32 feature30:1;	/* available */
+	u32 feature31:1;	/* available */
+	u32 feature32:1;	/* available */
 } CONSOLEFRAMEBUFFER_HOSTDRIVERFEATURES;
 
 /* Identifies the format for each pixel in the video frame buffer.
@@ -325,70 +325,70 @@ typedef struct CONSOLEFRAMEBUFFER_ImageBatch  {
      *  in the midst of getting written, the card may see a value
      *  that is too small, but never a value that is too large.
      */
-	U64 seqNoBatch;
-	U32 nRects;	/*< \# valid entries in the rect array below */
-	U32 reserved1;	/*< filler to be 64-bit friendly */
+	u64 seqNoBatch;
+	u32 nRects;	/*< \# valid entries in the rect array below */
+	u32 reserved1;	/*< filler to be 64-bit friendly */
 	CONSOLEFRAMEBUFFER_CHANGERECTANGLE
 	    rect[CONSOLEFRAMEBUFFER_MAXIMAGECHANGESPERBATCH];
 } CONSOLEFRAMEBUFFER_IMAGEBATCH;
 
 typedef struct CONSOLEFRAMEBUFFER_HostDriverVideoData_Header  {
-	U32 sig1;	/*< #CONSOLEFRAMEBUFFER_HOSTDRIVERSIG1 */
-	U16 compatibilityVersion;
-	U8 version[18];/*< release info meaningful to user */
+	u32 sig1;	/*< #CONSOLEFRAMEBUFFER_HOSTDRIVERSIG1 */
+	u16 compatibilityVersion;
+	u8 version[18];/*< release info meaningful to user */
 
     /* features supported by host driver */
 	CONSOLEFRAMEBUFFER_HOSTDRIVERFEATURES hostDriverFeatures;
-	U8 reserved1[36];
+	u8 reserved1[36];
 			/*< leave more room for global data items,
 			 *   and be 64-bit friendly
 			 */
 } CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA_HEADER;
 
 typedef struct CONSOLEFRAMEBUFFER_HostDriverVideoData_VideoMode  {
-	U16 textModeLines;
+	u16 textModeLines;
 			/*<  0  = graphics mode,
 			 *   25  = 25 lines,
 			 *   50  = 50 lines
 			 */
-	U16 bytesPerScanLine;
+	u16 bytesPerScanLine;
 			 /*< \# bytes in each scan line that need to
 			 *   be looked at to display the screen image
 			 */
-	U16 bytesPerScanLineWithPad;
+	u16 bytesPerScanLineWithPad;
 				/*< \# bytes occupied by each scan line
 			 *   (this may be larger than
 			 *   CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA
 			 *   #bytesPerScanLine in modes that have extra
 			 *   pad bytes at the end of each scan line)
 			 */
-	U16 nScanLines;/*< \# scan lines going down the screen */
-	U16 pixelsAcross;
+	u16 nScanLines;/*< \# scan lines going down the screen */
+	u16 pixelsAcross;
 			/*< \# pixels on each scan line, or 0 */
-	U8 bpp;	/*< 4, 8, 16, 24, 32 */
-	U8 pixelFmt;	/*< PIXELFMT_xxx... */
-	U8 reserved2[52];
+	u8 bpp;	/*< 4, 8, 16, 24, 32 */
+	u8 pixelFmt;	/*< PIXELFMT_xxx... */
+	u8 reserved2[52];
 			/*< initialized to 0 */
 } CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA_VIDEOMODE;
 
 typedef struct CONSOLEFRAMEBUFFER_HostDriverVideoData_SeqNo {
-	U64 seqNoVideoMode;/*< incremented whenever video mode changes */
-	U64 seqNoPalette;  /*< incremented whenever <palette> changes */
-	U64 seqNoAbortBatch;
+	u64 seqNoVideoMode;/*< incremented whenever video mode changes */
+	u64 seqNoPalette;  /*< incremented whenever <palette> changes */
+	u64 seqNoAbortBatch;
 			    /*< incremented whenever the card should
 			     *   just discard all remaining
 			     *   batches and just refresh the image
 			     */
-	U64 seqNoReadyBatch;
+	u64 seqNoReadyBatch;
 			    /*  incremented whenever next batch ready
 			     *   at CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA
 			     *   #hostDriverImageChangesAddress
 			     */
-	U64 seqNoGraphicsCursor;
+	u64 seqNoGraphicsCursor;
 			    /*< incremented whenever graphicsCursor changes */
-	U64 seqNoTextCursor;
+	u64 seqNoTextCursor;
 			    /*< incremented whenever textCursor changes */
-	U8 reserved5[80];  /*< leave room for more counters,
+	u8 reserved5[80];  /*< leave room for more counters,
 			     *   and be 64-bit friendly */
 } CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA_SEQNO;
 
@@ -418,11 +418,11 @@ typedef struct CONSOLEFRAMEBUFFER_HostDriverVideoData  {
 
     /* host driver informs firmware about current time of day */
 	CONSOLEFRAMEBUFFER_TIMEOFDAY timeOfDay;
-	U8 reserved6[31324];
+	u8 reserved6[31324];
 			  /*< force the structure to be exactly 64k bytes */
-	U32 pendingBatch;
-	U32 surfCount;
-	U32 sig2;	    /*< CONSOLEFRAMEBUFFER_HOSTDRIVERSIG2 */
+	u32 pendingBatch;
+	u32 surfCount;
+	u32 sig2;	    /*< CONSOLEFRAMEBUFFER_HOSTDRIVERSIG2 */
 } CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA;
 
 /*-----------------------------------------------*
@@ -432,12 +432,12 @@ typedef struct CONSOLEFRAMEBUFFER_HostDriverVideoData  {
 #define CONSOLEFRAMEBUFFER_FIRMWARESIG1     0xFEED0520
 #define CONSOLEFRAMEBUFFER_FIRMWARESIG2     0x0520FEED
 typedef struct CONSOLEFRAMEBUFFER_FirmwareVideoData_Header  {
-	U32 firmwareSig1;   /*< CONSOLEFRAMEBUFFER_FIRMWARESIG1 */
-	U16 firmwareCompatibilityVersion;
-	U8 firmwareVersion[18];
+	u32 firmwareSig1;   /*< CONSOLEFRAMEBUFFER_FIRMWARESIG1 */
+	u16 firmwareCompatibilityVersion;
+	u8 firmwareVersion[18];
 			     /*< release info meaningful to user */
 	CONSOLEFRAMEBUFFER_FIRMWAREFEATURES firmwareFeatures;
-	U8 reserved1[36];
+	u8 reserved1[36];
 } CONSOLEFRAMEBUFFER_FIRMWAREVIDEODATA_HEADER;
 
 /* Structure describing the current firmware state.
@@ -449,19 +449,19 @@ typedef struct CONSOLEFRAMEBUFFER_FirmwareVideoData_Header  {
 typedef struct CONSOLEFRAMEBUFFER_FirmwareVideoData  {
 	CONSOLEFRAMEBUFFER_FIRMWAREVIDEODATA_HEADER header;
 
-	U32 hostRequestCode; /*< if non-0, command for host to perform
+	u32 hostRequestCode; /*< if non-0, command for host to perform
 			      *   (hostRequestCode_xxx defined by
 			      *   #CONSOLEFRAMEBUFFER_HOSTREQUESTCODE)
 			      */
-	U32 frameBufferBytes; /*< number of bytes of allocated video
+	u32 frameBufferBytes; /*< number of bytes of allocated video
 			       *  framebuffer memory */
-	S64 offsetToFrameBuffer; /* < offset from the beginning of the
+	s64 offsetToFrameBuffer; /* < offset from the beginning of the
 				  *   consoleframebuffer channel to the
 				  *   video framebuffer memory; note this
 				  *   is a physical memory offset, not
 				  *   virtual
 				  */
-	S64 offsetToLegacyVideo; /* < offset from the beginning of the
+	s64 offsetToLegacyVideo; /* < offset from the beginning of the
 			      *   consoleframebuffer channel to the
 			      *   BOCHS_VIDEO_STATE structure (if you
 			      *   are a host driver running in
@@ -470,8 +470,8 @@ typedef struct CONSOLEFRAMEBUFFER_FirmwareVideoData  {
 			      *   note this is a physical memory
 			      *   offset, not virtual
 			      */
-	U8 pad[65444];	     /* < force the structure to be exactly 64k */
-	U32 firmwareSig2;   /*  #CONSOLEFRAMEBUFFER_FIRMWARESIG2 */
+	u8 pad[65444];	     /* < force the structure to be exactly 64k */
+	u32 firmwareSig2;   /*  #CONSOLEFRAMEBUFFER_FIRMWARESIG2 */
 } CONSOLEFRAMEBUFFER_FIRMWAREVIDEODATA;
 typedef struct _ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL {
 	ULTRA_CHANNEL_PROTOCOL Header;	/* 128 bytes */
@@ -486,7 +486,7 @@ typedef struct _ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL {
 	     *  to this channel, but we do not want anyone else to
 	     *  notice a change in channel size.
 	     */
-	 U8 reserved[65536];
+	 u8 reserved[65536];
 } ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL;
 
 #define CONSOLEFRAMEBUFFER_CH_SIZE COVER(sizeof(ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL), 65536)
@@ -544,7 +544,7 @@ ULTRA_CONSOLEFRAMEBUFFER_set_graphics_mode_ex(ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_P
 		return;
 		}
 	x->HostDriverVideoData.videoMode.textModeLines = 0;
-	x->HostDriverVideoData.videoMode.pixelsAcross = (U16) pixelWidth;
+	x->HostDriverVideoData.videoMode.pixelsAcross = (u16) pixelWidth;
 	x->HostDriverVideoData.videoMode.bytesPerScanLine =
 	    pixelWidth * bytesPerPixel;
 
@@ -556,8 +556,8 @@ ULTRA_CONSOLEFRAMEBUFFER_set_graphics_mode_ex(ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_P
 	    x->HostDriverVideoData.videoMode.bytesPerScanLine;
 
 #endif	/*  */
-	    x->HostDriverVideoData.videoMode.nScanLines = (U16) pixelHeight;
-	x->HostDriverVideoData.videoMode.bpp = (U8) bpp;
+	    x->HostDriverVideoData.videoMode.nScanLines = (u16) pixelHeight;
+	x->HostDriverVideoData.videoMode.bpp = (u8) bpp;
 	x->HostDriverVideoData.header.sig1 = CONSOLEFRAMEBUFFER_HOSTDRIVERSIG1;
 	x->HostDriverVideoData.sig2 = CONSOLEFRAMEBUFFER_HOSTDRIVERSIG2;
 }

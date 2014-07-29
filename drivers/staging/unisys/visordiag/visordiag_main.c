@@ -74,7 +74,7 @@ static ssize_t visordiag_file_write(struct file *file,
 static int visordiag_mmap(struct file *file, struct vm_area_struct *vma);
 static ssize_t visordiag_file_xfer(struct file *file,
 				   const char __user *buf,
-				   size_t count, U8 *ModuleName);
+				   size_t count, u8 *ModuleName);
 
 static int
 simplebus_match(struct device *xdev, struct device_driver *xdrv)
@@ -229,8 +229,8 @@ visordiag_release_severityfilter(char *filter)
 }
 EXPORT_SYMBOL_GPL(visordiag_release_severityfilter);
 
-static void set_severity_filter(U64 subsystem_mask, U8 filter,
-				U8 __iomem *all_filters);
+static void set_severity_filter(u64 subsystem_mask, u8 filter,
+				u8 __iomem *all_filters);
 static void new_message_to_host(void *context, DIAG_CHANNEL_EVENT *event);
 static void destroy_file(struct visordiag_filedata *filedata);
 static void host_side_disappeared(struct visordiag_devdata *devdata);
@@ -615,7 +615,7 @@ simplebus_release_device(struct device *xdev)
 }
 
 static struct visor_device *
-create_visor_device(U64 addr)
+create_visor_device(u64 addr)
 {
 	struct visor_device *rc = NULL;
 	VISORCHANNEL *visorchannel = NULL;
@@ -719,7 +719,7 @@ visordiag_process_device_diag_command(char *buf, size_t count,
 	s[i] = '\0';
 	/* Note: "%i" means "0x" will precede iff the value is in hex */
 	if (sscanf(s, "setfilter %lli %i", &subsystem_mask, &filter) == 2)
-		set_severity_filter(subsystem_mask, (U8) filter,
+		set_severity_filter(subsystem_mask, (u8) filter,
 				    devdata->diagChannelHeader->
 				    SubsystemSeverityFilter);
 	else
@@ -730,7 +730,7 @@ static int __init
 visordiag_init(void)
 {
 	int rc = -1;
-	U64 diag_addr = 0;
+	u64 diag_addr = 0;
 
 	INFODRV("driver version %s loaded", VERSION);
 	/* uintpool_test(); */
@@ -1443,7 +1443,7 @@ Away:
  */
 static ssize_t
 visordiag_file_xfer(struct file *file, const char __user *buf,
-		    size_t count, U8 *ModuleName)
+		    size_t count, u8 *ModuleName)
 {
 	int rc = -1;
 	struct visordiag_filedata *filedata =
@@ -1555,7 +1555,7 @@ Away:
 }
 
 static void
-set_severity_filter(U64 subsystem_mask, U8 filter, U8 __iomem *all_filters)
+set_severity_filter(u64 subsystem_mask, u8 filter, u8 __iomem *all_filters)
 {
 	int i;
 	for (i = 0; i < 64; i++) {

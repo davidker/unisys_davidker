@@ -48,7 +48,7 @@
 
 #define SYSLOG_GET_PRIORITY(pri) (pri & 0x7)
 
-static inline U32
+static inline u32
 pri_to_severity(int pri)
 {
 	switch (SYSLOG_GET_PRIORITY(pri)) {

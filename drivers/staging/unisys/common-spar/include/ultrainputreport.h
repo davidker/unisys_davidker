@@ -66,15 +66,15 @@ typedef enum {
 } ULTRA_INPUTACTION;
 
 typedef struct {
-	U16 action;
+	u16 action;
 		 /*< see ULTRA_INPUTACTION */
-	U16 arg1;
-	U16 arg2;
-	U16 arg3;
+	u16 arg1;
+	u16 arg2;
+	u16 arg3;
 } ULTRA_INPUTACTIVITY;
 
 typedef struct {
-	U64 seqNo;
+	u64 seqNo;
 	ULTRA_INPUTACTIVITY activity;
 } ULTRA_INPUTREPORT;
 

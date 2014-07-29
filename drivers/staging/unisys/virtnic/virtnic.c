@@ -130,7 +130,7 @@ static struct virtpci_driver virtnic_driver = {
 	cmdrsp->cmdtype = CMD_NET_TYPE; \
 	uisqueue_put_cmdrsp_with_lock_client(queue, cmdrsp, IOCHAN_TO_IOPART, \
 					     (void *)insertlock,	\
-					     DONT_ISSUE_INTERRUPT, (U64)NULL, \
+					     DONT_ISSUE_INTERRUPT, (u64)NULL, \
 					     OK_TO_WAIT, "vnic");	\
 	stats.sent_enbdis++;\
 }
@@ -240,7 +240,7 @@ struct virtnic_info {
 	unsigned long long flow_control_lower_hits;
 	struct work_struct serverdown_completion;
 	struct work_struct timeout_reset;
-	U64 __iomem *flags_addr;
+	u64 __iomem *flags_addr;
 	atomic_t interrupt_rcvd;
 	wait_queue_head_t rsp_queue;
 };
@@ -319,7 +319,7 @@ post_skb(struct uiscmdrsp *cmdrsp,
 						     (void *) &vnicinfo->
 						     datachan.chinfo.insertlock,
 						     DONT_ISSUE_INTERRUPT,
-						     (U64) NULL, OK_TO_WAIT,
+						     (u64) NULL, OK_TO_WAIT,
 						     "vnic");
 		atomic_inc(&vnicinfo->num_rcv_bufs_in_iovm);
 		vnicinfo->datachan.chstat.sent_post++;
@@ -332,7 +332,7 @@ virtnic_ISR(int irq, void *dev_id)
 	struct virtnic_info *vnicinfo = (struct virtnic_info *) dev_id;
 	CHANNEL_HEADER __iomem *pChannelHeader;
 	SIGNAL_QUEUE_HEADER __iomem *pqhdr;
-	U64 mask;
+	u64 mask;
 	unsigned long long rc1;
 	if (vnicinfo == NULL)
 		return IRQ_NONE;
@@ -386,7 +386,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	irq_handler_t handler = virtnic_ISR;
 	CHANNEL_HEADER __iomem *pChannelHeader;
 	SIGNAL_QUEUE_HEADER __iomem *pqhdr;
-	U64 mask;
+	u64 mask;
 
 #define RETFAIL(res) {\
 		kfree(vnicinfo->cmdrsp_rcv);  \
@@ -504,7 +504,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 		((char __iomem *)pChannelHeader +
 		 readq(&pChannelHeader->oChannelSpace)) +
 	    IOCHAN_FROM_IOPART;
-	vnicinfo->flags_addr = (__force U64 __iomem *)&pqhdr->FeatureFlags;
+	vnicinfo->flags_addr = (__force u64 __iomem *)&pqhdr->FeatureFlags;
 	vnicinfo->thread_wait_ms = 2;
 	if (!uisthread_start(&vnicinfo->datachan.chinfo.threadinfo,
 			     process_incoming_rsps, &vnicinfo->datachan,
@@ -583,7 +583,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 			   vnicinfo->interrupt_vector, rsp);
 		vnicinfo->interrupt_vector = -1;
 	} else {
-		U64 __iomem *Features_addr =
+		u64 __iomem *Features_addr =
 		    &vnicinfo->datachan.chinfo.queueinfo->chan->Features;
 		LOGERRNAME(vnicinfo->netdev,
 			   "request_irq(%d) uislib_vnic_ISR request succeeded\n",
@@ -1213,7 +1213,7 @@ process_incoming_rsps(void *v)
 	struct virtnic_info *vnicinfo;
 	CHANNEL_HEADER __iomem *pChannelHeader;
 	SIGNAL_QUEUE_HEADER __iomem *pqhdr;
-	U64 mask;
+	u64 mask;
 	unsigned long long rc1;
 
 	UIS_DAEMONIZE("vnic_incoming");
@@ -1246,7 +1246,7 @@ process_incoming_rsps(void *v)
 		atomic_set(&vnicinfo->interrupt_rcvd, 0);
 		send_rcv_posts_if_needed(vnicinfo);
 		drain_queue(dc, cmdrsp, vnicinfo);
-		rc1 = uisqueue_InterlockedOr((U64 __iomem *)
+		rc1 = uisqueue_InterlockedOr((u64 __iomem *)
 					     vnicinfo->flags_addr, mask);
 		if (dc->chinfo.threadinfo.should_stop)
 			break;
@@ -1900,7 +1900,7 @@ virtnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 		        vnicinfo->datachan.chinfo.queueinfo, cmdrsp,
 			IOCHAN_TO_IOPART,
 			(void *) &vnicinfo->datachan.chinfo.insertlock,
-			DONT_ISSUE_INTERRUPT, (U64) NULL,
+			DONT_ISSUE_INTERRUPT, (u64) NULL,
 			0 /* don't wait */ ,
 			"vnic");
 	if (!qrslt) {
@@ -2199,7 +2199,7 @@ virtnic_set_multi(struct net_device *netdev)
 			    (vnicinfo->datachan.chinfo.queueinfo, cmdrsp,
 			     IOCHAN_TO_IOPART,
 			     (void *) &vnicinfo->datachan.chinfo.insertlock,
-			     DONT_ISSUE_INTERRUPT, (U64) NULL,
+			     DONT_ISSUE_INTERRUPT, (u64) NULL,
 			     0 /* don't wait */ , "vnic")) {
 				vnicinfo->datachan.chstat.sent_promisc++;
 			} else
@@ -2291,7 +2291,7 @@ info_proc_read(struct file *file, char __user *buf,
 		length += sprintf(vbuf + length, " num_rcv_bufs = %d\n",
 				  vni->num_rcv_bufs);
 		length += sprintf(vbuf + length, " Features = 0x%016llX\n",
-				  (U64)readq(&vni->datachan.chinfo.queueinfo->chan->Features));
+				  (u64)readq(&vni->datachan.chinfo.queueinfo->chan->Features));
 		length += sprintf(vbuf + length,
 				  " max_outstanding_net_xmits = %d\n",
 				  vni->max_outstanding_net_xmits);
@@ -2401,8 +2401,8 @@ enable_ints_write(struct file *file, const char __user *buffer,
 	char buf[4];
 	int i, new_value;
 	struct virtnic_info *vnicinfo;
-	U64 __iomem *Features_addr;
-	U64 mask;
+	u64 __iomem *Features_addr;
+	u64 mask;
 
 	if (count >= ARRAY_SIZE(buf))
 		return -EINVAL;

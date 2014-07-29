@@ -109,28 +109,28 @@ typedef enum
 * EFI_SERIAL_IO_MODE structure - copied here so AppOS (Diag) can make
 * use of it in CONSOLE_CONTROL structure for db-all port...  */
 typedef struct _ULTRA_SERIAL_IO_MODE  {
-	U32 ControlMask;
+	u32 ControlMask;
 	
 	    /*  */
 	    /* current Attributes */
 	    /*  */
-	U32 Timeout;
-	U64 BaudRate;
-	U32 ReceiveFifoDepth;
-	U32 DataBits;
-	U32 Parity;
-	U32 StopBits;
+	u32 Timeout;
+	u64 BaudRate;
+	u32 ReceiveFifoDepth;
+	u32 DataBits;
+	u32 Parity;
+	u32 StopBits;
 } ULTRA_SERIAL_IO_MODE;
  typedef struct _CONSOLE_CONTROL  {
 	EFI_UART_TYPE DeviceType;
-	U8 IsActive;		/* /< If this channel active */
-	U8 ControlChanged;	/* /< If SetControl is called */
-	U8 AttributesChanged;	/* /< If SetAttributes is called */
-	U8 YieldingToBoot;	/* /< This console channel has become inactive because it is yielding to the boot */
-	U8 ReservedA;		/* /< This console channel wishes to be active */
-	U8 GuestIsDead;		/* /< The guest is no longer running */
-	U8 Reserved[2];		/* /< For alignment */
-	U32 WaitCount;		/* /< Number of waits */
+	u8 IsActive;		/* /< If this channel active */
+	u8 ControlChanged;	/* /< If SetControl is called */
+	u8 AttributesChanged;	/* /< If SetAttributes is called */
+	u8 YieldingToBoot;	/* /< This console channel has become inactive because it is yielding to the boot */
+	u8 ReservedA;		/* /< This console channel wishes to be active */
+	u8 GuestIsDead;		/* /< The guest is no longer running */
+	u8 Reserved[2];		/* /< For alignment */
+	u32 WaitCount;		/* /< Number of waits */
 	ULTRA_SERIAL_IO_MODE Mode;	/* /< 32 bytes */
 	/* If you increase the size of this structure, please also
 	* check the value of SIZEOF_CONSOLE_CONTROL below, to be sure
@@ -149,11 +149,11 @@ typedef struct _ULTRA_SERIAL_IO_MODE  {
 						 * Protocol Header */
 
 	/* Control is only needed for the EFI-only demo environment */
-	U8 Control[SIZEOF_CONSOLE_CONTROL];
+	u8 Control[SIZEOF_CONSOLE_CONTROL];
 	SIGNAL_QUEUE_HEADER InQ;
 	SIGNAL_QUEUE_HEADER OutQ;
-	U8 InData[CONSOLE_IN_MAX_BUFFER_SIZE];
-	U8 OutData[CONSOLE_OUT_MAX_BUFFER_SIZE];
+	u8 InData[CONSOLE_IN_MAX_BUFFER_SIZE];
+	u8 OutData[CONSOLE_OUT_MAX_BUFFER_SIZE];
 	/* OutData must remain last field of channel.  It can by
 	 * expanded by allocating extra channel memory */
 } ULTRA_CONSOLE_CHANNEL_PROTOCOL, ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL;
@@ -178,8 +178,8 @@ ULTRA_CONSOLESERIAL_init_channel(ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL * x)
 	x->ChannelHeader.Type = UltraConsoleChannelProtocolGuid;
 	/* x->ChannelHeader.Type = UltraConsoleSerialChannelProtocolGuid; */
 	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
-	SignalInit(x, InQ, InData, U8, 0, 0);
-	SignalInit(x, OutQ, OutData, U8, 0, 0);
+	SignalInit(x, InQ, InData, u8, 0, 0);
+	SignalInit(x, OutQ, OutData, u8, 0, 0);
 	x->ChannelHeader.oChannelSpace =
 	    offsetof(ULTRA_CONSOLE_CHANNEL_PROTOCOL, InQ);
 }

@@ -76,13 +76,13 @@ static const uuid_le UltraConsoleVideoPrimaryChannelProtocolGuid =
 #define CONSOLELEGACYVIDEO_CH_SIZE 395009
 typedef struct _ULTRA_CONSOLEVIDEO_CHANNEL_PROTOCOL {
 	    /* space reserved for legacy video use: */
-	U8 reserved[CONSOLELEGACYVIDEO_CH_SIZE];
+	u8 reserved[CONSOLELEGACYVIDEO_CH_SIZE];
 
 	    /* Allowed access by host driver clients, and service partition: */
-	U8 FrameBufferChannel[CONSOLEFRAMEBUFFER_CH_SIZE];
+	u8 FrameBufferChannel[CONSOLEFRAMEBUFFER_CH_SIZE];
 
 	    /* Allowed access by everyone: */
-	U8 FrameBufferMemoryChannel[CONSOLEFRAMEBUFFERMEMORY_CH_SIZE];
+	u8 FrameBufferMemoryChannel[CONSOLEFRAMEBUFFERMEMORY_CH_SIZE];
 } ULTRA_CONSOLEVIDEO_CHANNEL_PROTOCOL;
 
 /* Make it an even multiple of small pages: */

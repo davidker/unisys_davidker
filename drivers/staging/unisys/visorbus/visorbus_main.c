@@ -350,7 +350,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 	int i, x, remain = PAGE_SIZE;
 	ulong off;
 	char *p = buf;
-	U8 *partition_name;
+	u8 *partition_name;
 	ULTRA_VBUS_DEVICEINFO devInfo;
 
 	partition_name = "";
@@ -785,7 +785,7 @@ visorbus_write_channel(struct visor_device *dev, ulong offset, void *src,
 EXPORT_SYMBOL_GPL(visorbus_write_channel);
 
 int
-visorbus_clear_channel(struct visor_device *dev, ulong offset, U8 ch,
+visorbus_clear_channel(struct visor_device *dev, ulong offset, u8 ch,
 		       ulong nbytes)
 {
 	return visorchannel_clear(dev->visorchannel, offset, ch, nbytes);
@@ -834,7 +834,7 @@ EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 static int
 create_visor_device(struct visorbus_devdata *devdata,
 		    ulong chipset_busNo, ulong chipset_devNo,
-		    VISORCHIPSET_CHANNEL_INFO chanInfo, U64 partitionHandle)
+		    VISORCHIPSET_CHANNEL_INFO chanInfo, u64 partitionHandle)
 {
 	int rc = -1;
 	VISORCHANNEL *visorchannel = NULL;

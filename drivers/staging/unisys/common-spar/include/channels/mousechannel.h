@@ -57,8 +57,8 @@ static const uuid_le UltraMouseChannelProtocolGuid =
 typedef struct _ULTRA_MOUSE_CHANNEL_PROTOCOL {
 	ULTRA_CHANNEL_PROTOCOL ChannelHeader;	/* /< Generic Channel Protocol
 						 * Header */
-	U32 nInputReports;	/* /< max # entries in <inputReport> */
-	U32 filler1;
+	u32 nInputReports;	/* /< max # entries in <inputReport> */
+	u32 filler1;
 	SIGNAL_QUEUE_HEADER inputReportQ;
 	ULTRA_INPUTREPORT inputReport[MOUSE_MAXINPUTREPORTS];
 } ULTRA_MOUSE_CHANNEL_PROTOCOL;

@@ -64,7 +64,7 @@ static VISORCHIPSET_BUSDEV_RESPONDERS Chipset_Responders;
 static ULTRA_VBUS_DEVICEINFO Chipset_DriverInfo;
 
 static void __iomem *
-get_virt(U64 phys_addr, U32 bytes, VISORCHIPSET_ADDRESSTYPE addrType)
+get_virt(u64 phys_addr, u32 bytes, VISORCHIPSET_ADDRESSTYPE addrType)
 {
 	if (addrType == ADDRTYPE_localTest) {
 		if (phys_addr > virt_to_phys(high_memory - 1)) {
@@ -112,7 +112,7 @@ otherwise return NULL.
 		/* come out, if Memory is undefined or greater then
 		 * HIGM_MEMORY
 		 */
-		if (phys_addr > (U64) ULONG_MAX) {
+		if (phys_addr > (u64) ULONG_MAX) {
 			ERRDRV("%s - localPhysical address is too large to be be mapped (0x%-16.16Lx for %lu bytes)",
 			       __func__,
 			       (unsigned long long) phys_addr, (ulong) bytes);
@@ -154,7 +154,7 @@ static void
 chipset_bus_create(ulong busNo)
 {
 	int rc = 0;
-	U64 channelAddr = 0;
+	u64 channelAddr = 0;
 	ulong nChannelBytes = 0;
 	VISORCHIPSET_BUS_INFO busInfo;
 	CONTROLVM_MESSAGE msg;

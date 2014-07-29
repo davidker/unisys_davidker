@@ -118,7 +118,7 @@ struct visor_device {
 	 */
 	VISORCHANNEL *visorchannel;
 	uuid_le channel_type_guid;
-	U64 channel_bytes;
+	u64 channel_bytes;
 
 	/** These fields are for private use by the bus driver only.
 	 *  A notable exception is that the visor driver can use
@@ -168,7 +168,7 @@ extern int visorbus_read_channel(struct visor_device *dev,
 extern int visorbus_write_channel(struct visor_device *dev,
 				  ulong offset, void *src, ulong nbytes);
 extern int visorbus_clear_channel(struct visor_device *dev,
-				  ulong offset, U8 ch, ulong nbytes);
+				  ulong offset, u8 ch, ulong nbytes);
 extern int visorbus_registerdevnode(struct visor_device *dev,
 				    const char *name, int major, int minor);
 extern void visorbus_enable_channel_interrupts(struct visor_device *dev);

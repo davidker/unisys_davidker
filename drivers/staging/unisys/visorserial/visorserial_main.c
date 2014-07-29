@@ -170,8 +170,8 @@ struct visorserial_filedata_serial {
 	unsigned char buf[NFILEWRITEBYTESTOBUFFER];
 };
 
-static void new_char_from_host(struct visorserial_devdata *devdata, U8 c);
-static void new_char_to_host(void *context, U8 c);
+static void new_char_from_host(struct visorserial_devdata *devdata, u8 c);
+static void new_char_to_host(void *context, u8 c);
 static void serial_destroy_file(struct visorserial_filedata_serial *filedata);
 static void host_side_disappeared(struct visorserial_devdata *devdata);
 static void visorserial_show_device_info(struct seq_file *seq, void *p);
@@ -439,7 +439,7 @@ Away:
 static void
 visorserial_channel_interrupt(struct visor_device *dev)
 {
-	U8 data;
+	u8 data;
 
 	struct visorserial_devdata *devdata = visor_get_drvdata(dev);
 	if (devdata == NULL) {
@@ -526,7 +526,7 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 }
 
 static struct visor_device *
-create_visor_device(U64 addr)
+create_visor_device(u64 addr)
 {
 	struct visor_device *rc = NULL;
 	VISORCHANNEL *visorchannel = NULL;
@@ -632,7 +632,7 @@ int __init
 visorserial_init(void)
 {
 	int rc = -1;
-	U64 visorserial_addr = 0;
+	u64 visorserial_addr = 0;
 
 	INFODRV("driver version %s loaded", VERSION);
 	/* uintpool_test(); */
@@ -761,14 +761,14 @@ serial_destroy_file(struct visorserial_filedata_serial *filedata)
 }
 
 static void
-serial_new_host_char(struct visorserial_filedata_serial *filedata, U8 c)
+serial_new_host_char(struct visorserial_filedata_serial *filedata, u8 c)
 {
 	visor_charqueue_enqueue(filedata->data_from_host, c);
 	wake_up(&filedata->waiting_readers);
 }
 
 static void
-new_char_from_host(struct visorserial_devdata *devdata, U8 c)
+new_char_from_host(struct visorserial_devdata *devdata, u8 c)
 {
 	struct list_head *listentry, *listtmp;
 	read_lock(&devdata->lock_files);
@@ -784,7 +784,7 @@ new_char_from_host(struct visorserial_devdata *devdata, U8 c)
 }
 
 static void
-new_char_to_host(void *context, U8 c)
+new_char_to_host(void *context, u8 c)
 {
 	struct visorserial_devdata *devdata =
 	    (struct visorserial_devdata *) (context);
