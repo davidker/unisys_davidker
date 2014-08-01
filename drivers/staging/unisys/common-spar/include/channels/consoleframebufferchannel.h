@@ -16,9 +16,9 @@
 #ifndef __CONSOLEFRAMEBUFFER_H__
 #define __CONSOLEFRAMEBUFFER_H__
 
+#include <linux/types.h>
 #include <linux/uuid.h>
 
-#include "commontypes.h"
 #include "channel.h"
 /* Needed for BOCHS_VIDEO_STATE */
 #define BX_SUPPORT_VBE      1

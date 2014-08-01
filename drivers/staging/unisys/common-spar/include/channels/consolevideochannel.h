@@ -16,7 +16,9 @@
 #ifndef __CONSOLEVIDEO_H__
 #define __CONSOLEVIDEO_H__
 
-#include "commontypes.h"
+#include <linux/types.h>
+#include <linux/uuid.h>
+
 #include "controlframework.h"
 #include "consoleframebufferchannel.h"
 #include "consoleframebuffermemorychannel.h"
