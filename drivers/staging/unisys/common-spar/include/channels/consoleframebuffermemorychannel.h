@@ -16,9 +16,9 @@
 #ifndef __CONSOLEFRAMEBUFFERMEMORY_H__
 #define __CONSOLEFRAMEBUFFERMEMORY_H__
 
+#include <linux/types.h>
 #include <linux/uuid.h>
 
-#include "commontypes.h"
 #include "channel.h"
 
 /* {F2DB76C2-1C43-4f24-A5DA-A28EE66A7480} */

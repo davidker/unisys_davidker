@@ -16,7 +16,9 @@
 #ifndef __MOUSECHANNEL_H__
 #define __MOUSECHANNEL_H__
 
-#include "commontypes.h"
+#include <linux/types.h>
+#include <linux/uuid.h>
+
 #include "channel.h"
 #include "ultrainputreport.h"
 

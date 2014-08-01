@@ -18,7 +18,6 @@
 
 #include <linux/uuid.h>
 
-#include "commontypes.h"
 #include "channel.h"
 
 #define ULTRA_CONSOLE_CHANNEL_PROTOCOL_GUID  \

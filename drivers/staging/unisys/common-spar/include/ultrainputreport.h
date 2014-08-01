@@ -16,7 +16,7 @@
 #ifndef __ULTRAINPUTREPORT_H__
 #define __ULTRAINPUTREPORT_H__
 
-#include "commontypes.h"
+#include <linux/types.h>
 
 #pragma pack(push, 1)		/* both GCC and VC now allow this pragma */
 /* Identifies mouse and keyboard activity which is specified by the firmware to
