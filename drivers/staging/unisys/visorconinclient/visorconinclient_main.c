@@ -407,10 +407,10 @@ Away:
 static void
 host_side_disappeared(struct visorconinclient_devdata *devdata)
 {
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	UNLOCKWRITESEM(&devdata->lockVisorDev);
+	up_write(&devdata->lockVisorDev);
 }
 
 static void
@@ -752,7 +752,7 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 		       __func__);
 		goto Away;
 	}
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	locked = TRUE;
 	if (devdata->paused)
 		goto Away;	/* don't touch device/channel when paused */
@@ -853,7 +853,7 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 
 Away:
 	if (locked) {
-		UNLOCKWRITESEM(&devdata->lockVisorDev);
+		up_write(&devdata->lockVisorDev);
 		locked = FALSE;
 	}
 }
@@ -871,7 +871,7 @@ visorconinclient_pause(struct visor_device *dev,
 		       __func__);
 		goto Away;
 	}
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	locked = TRUE;
 	if (devdata->paused) {
 		ERRDEV(dev_name(&dev->device),
@@ -885,7 +885,7 @@ visorconinclient_pause(struct visor_device *dev,
 	rc = 0;
 Away:
 	if (locked) {
-		UNLOCKWRITESEM(&devdata->lockVisorDev);
+		up_write(&devdata->lockVisorDev);
 		locked = FALSE;
 	}
 	return rc;
@@ -904,7 +904,7 @@ visorconinclient_resume(struct visor_device *dev,
 		       __func__);
 		goto Away;
 	}
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	locked = TRUE;
 	if (!devdata->paused) {
 		ERRDEV(dev_name(&dev->device),
@@ -917,7 +917,7 @@ visorconinclient_resume(struct visor_device *dev,
 	rc = 0;
 Away:
 	if (locked) {
-		UNLOCKWRITESEM(&devdata->lockVisorDev);
+		up_write(&devdata->lockVisorDev);
 		locked = FALSE;
 	}
 	return rc;

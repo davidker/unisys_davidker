@@ -281,7 +281,7 @@ devdata_rw_property_store(struct device *ddev,
 		if (!get_ulong_from_buf(buf, count, &val))
 			ERRDEV(devdata->name,
 			       "inprogress must be number (hex or dec)");
-		LOCKWRITESEM(&devdata->lock_device);
+		down_write(&devdata->lock_device);
 		if (val == 1)
 			TRANSITION_STATE(devdata, state_requested,
 					 state_inProgress);
@@ -313,7 +313,7 @@ devdata_rw_property_store(struct device *ddev,
 			}
 		} else {
 		}
-		UNLOCKWRITESEM(&devdata->lock_device);
+		up_write(&devdata->lock_device);
 		break;
 	default:
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",

@@ -548,10 +548,10 @@ dev_periodic_work(void *xdev)
 {
 	struct visor_device *dev = (struct visor_device *) xdev;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
-	LOCKSEM_UNINTERRUPTIBLE(&dev->visordriver_callback_lock);
+	down(&dev->visordriver_callback_lock);
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
-	UNLOCKSEM(&dev->visordriver_callback_lock);
+	up(&dev->visordriver_callback_lock);
 	if (!visor_periodic_work_nextperiod(dev->periodic_work))
 		put_visordev(dev, "delayed work", visorbus_debugref);
 }
@@ -586,7 +586,7 @@ visordriver_probe_device(struct device *xdev)
 	struct visor_device *dev;
 	drv = to_visor_driver(xdev->driver);
 	dev = to_visor_device(xdev);
-	LOCKSEM_UNINTERRUPTIBLE(&dev->visordriver_callback_lock);
+	down(&dev->visordriver_callback_lock);
 	dev->being_removed = FALSE;
 	/*
 	 * ensure that the dev->being_removed flag is cleared before
@@ -595,7 +595,7 @@ visordriver_probe_device(struct device *xdev)
 	wmb();
 	get_visordev(dev, "probe", visorbus_debugref);
 	if (!drv->probe) {
-		UNLOCKSEM(&dev->visordriver_callback_lock);
+		up(&dev->visordriver_callback_lock);
 		ERRDEV(dev_name(&dev->device),
 		       "driver did not specify probe func");
 		rc = -1;
@@ -607,7 +607,7 @@ visordriver_probe_device(struct device *xdev)
 		goto Away;
 	}
 	fix_vbus_devInfo(dev);
-	UNLOCKSEM(&dev->visordriver_callback_lock);
+	up(&dev->visordriver_callback_lock);
 	rc = 0;
 Away:
 	if (rc == 0) {
@@ -646,7 +646,7 @@ visordriver_remove_device(struct device *xdev)
 	struct visor_driver *drv;
 	dev = to_visor_device(xdev);
 	drv = to_visor_driver(xdev->driver);
-	LOCKSEM_UNINTERRUPTIBLE(&dev->visordriver_callback_lock);
+	down(&dev->visordriver_callback_lock);
 	dev->being_removed = TRUE;
 	/*
 	 * ensure that the dev->being_removed flag is set before we start the
@@ -661,7 +661,7 @@ visordriver_remove_device(struct device *xdev)
 	} else
 		INFODEV(dev_name(&dev->device),
 			"no need to detach driver from child device");
-	UNLOCKSEM(&dev->visordriver_callback_lock);
+	up(&dev->visordriver_callback_lock);
 	dev_stop_periodic_work(dev);
 	devmajorminor_remove_all_files(dev);
 
