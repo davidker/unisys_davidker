@@ -1203,10 +1203,10 @@ new_message_to_host(void *context, DIAG_CHANNEL_EVENT *event)
 static void
 host_side_disappeared(struct visordiag_devdata *devdata)
 {
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	UNLOCKWRITESEM(&devdata->lockVisorDev);
+	up_write(&devdata->lockVisorDev);
 }
 
 static void
@@ -1254,11 +1254,11 @@ visordiag_file_open(struct inode *inode, struct file *file)
 			list_add_tail(&filedata->list_all,
 				      &devdata->list_files);
 			write_unlock(&devdata->lock_files);
-			LOCKWRITESEM(&devdata->lockOpenFileCount);
+			down_write(&devdata->lockOpenFileCount);
 			devdata->openFileCount++;
 			if (devdata->openFileCount == 1)
 				firstFileOpened(filedata);
-			UNLOCKWRITESEM(&devdata->lockOpenFileCount);
+			up_write(&devdata->lockOpenFileCount);
 			rc = 0;
 			goto Away;
 		}
@@ -1305,11 +1305,11 @@ visordiag_file_release(struct inode *inode, struct file *file)
 	if (filedata->minor == CHRDEV_PLAT_DIAG)
 		visordiag_file_xfer(file, (char __user *) "", 0,
 				    "PlatformDiag");
-	LOCKWRITESEM(&devdata->lockOpenFileCount);
+	down_write(&devdata->lockOpenFileCount);
 	if (devdata->openFileCount == 1)
 		lastFileClosed(filedata);
 	devdata->openFileCount--;
-	UNLOCKWRITESEM(&devdata->lockOpenFileCount);
+	up_write(&devdata->lockOpenFileCount);
 	write_lock(&devdata->lock_files);
 	list_del(&filedata->list_all);
 	write_unlock(&devdata->lock_files);
@@ -1391,9 +1391,9 @@ visordiag_file_write_guts(struct file *file,
 	}
 	devdata->counter.umodeBytesIn += count;
 	filedata->nbuf += count;
-	LOCKREADSEM(&devdata->lockVisorDev);
+	down_read(&devdata->lockVisorDev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 		rc = 0;	/* eof */
 		goto Away;
 	}
@@ -1421,7 +1421,7 @@ visordiag_file_write_guts(struct file *file,
 	}
 	filedata->nbuf -= i;
 
-	UNLOCKREADSEM(&devdata->lockVisorDev);
+	up_read(&devdata->lockVisorDev);
 
 	rc = count;
 Away:
@@ -1477,10 +1477,10 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	}
 
 	devdata->counter.umodeBytesIn += count;
-	LOCKREADSEM(&devdata->lockVisorDev);
+	down_read(&devdata->lockVisorDev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
 		INFODEV(devdata->name, "Host channel is gone.");
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 		rc = 0;	/* eof */
 		goto Away;
 	}
@@ -1496,7 +1496,7 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	if (copy_from_user(event.AdditionalInfo, buf, count)) {
 		ERRDEV(devdata->name, "%s failed. copy_from_user call returned non-zero result.\n",
 		       __func__);
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 		rc = -EFAULT;
 		goto Away;
 	}
@@ -1541,11 +1541,11 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 		new_message_to_host(devdata, &event);
 	} else {
 		INFODEV(devdata->name, "File transfer has timed out.");
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 		rc = -EAGAIN;
 		goto Away;
 	}
-	UNLOCKREADSEM(&devdata->lockVisorDev);
+	up_read(&devdata->lockVisorDev);
 	rc = count;		/* Sets rc to count and goes to Away label. */
 Away:
 	if (rc > 0)

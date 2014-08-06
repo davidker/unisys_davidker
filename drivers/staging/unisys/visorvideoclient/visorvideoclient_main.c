@@ -218,10 +218,10 @@ Away:
 static void
 host_side_disappeared(struct visorvideoclient_devdata *devdata)
 {
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	UNLOCKWRITESEM(&devdata->lockVisorDev);
+	up_write(&devdata->lockVisorDev);
 }
 
 static void

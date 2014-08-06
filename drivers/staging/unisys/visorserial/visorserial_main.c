@@ -365,10 +365,10 @@ devdata_release(struct kref *mykref)
 	if (devdata->linuxserial) {
 		linuxserial_destroy(devdata->linuxserial);
 		devdata->linuxserial = NULL;
-		LOCKREADSEM(&devdata->lockVisorDev);
+		down_read(&devdata->lockVisorDev);
 		if (devdata->dev != NULL)
 			visorbus_disable_channel_interrupts(devdata->dev);
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 	}
 	kfree(devdata);
 	INFODRV("%s finished", __func__);
@@ -814,10 +814,10 @@ static void
 host_side_disappeared(struct visorserial_devdata *devdata)
 {
 	struct list_head *listentry, *listtmp;
-	LOCKWRITESEM(&devdata->lockVisorDev);
+	down_write(&devdata->lockVisorDev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	UNLOCKWRITESEM(&devdata->lockVisorDev);
+	up_write(&devdata->lockVisorDev);
 	read_lock(&devdata->lock_files);
 	list_for_each_safe(listentry, listtmp, &devdata->list_files_serial) {
 		struct visorserial_filedata_serial *filedata =
@@ -844,10 +844,10 @@ firstFileOpened(struct visorserial_filedata_serial *filedata)
 	struct visorserial_devdata *devdata = filedata->devdata;
 	INFODEV(devdata->name, "lights on");
 	if (devdata->linuxserial == NULL) {
-		LOCKREADSEM(&devdata->lockVisorDev);
+		down_read(&devdata->lockVisorDev);
 		if (devdata->dev != NULL)
 			visorbus_enable_channel_interrupts(devdata->dev);
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 	}
 }
 
@@ -857,10 +857,10 @@ lastFileClosed(struct visorserial_filedata_serial *filedata)
 	struct visorserial_devdata *devdata = filedata->devdata;
 	INFODEV(devdata->name, "lights off");
 	if (devdata->linuxserial == NULL) {
-		LOCKREADSEM(&devdata->lockVisorDev);
+		down_read(&devdata->lockVisorDev);
 		if (devdata->dev != NULL)
 			visorbus_disable_channel_interrupts(devdata->dev);
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 	}
 }
 
@@ -888,11 +888,11 @@ visorserial_serial_open(struct inode *inode, struct file *file)
 			list_add_tail(&filedata->list_all,
 				      &devdata->list_files_serial);
 			write_unlock(&devdata->lock_files);
-			LOCKWRITESEM(&devdata->lockOpenFileCount);
+			down_write(&devdata->lockOpenFileCount);
 			devdata->openFileCount++;
 			if (devdata->openFileCount == 1)
 				firstFileOpened(filedata);
-			UNLOCKWRITESEM(&devdata->lockOpenFileCount);
+			up_write(&devdata->lockOpenFileCount);
 			rc = 0;
 			goto Away;
 		}
@@ -922,11 +922,11 @@ visorserial_serial_release(struct inode *inode, struct file *file)
 	}
 
 	INFODEV(devdata->name, "%s", __func__);
-	LOCKWRITESEM(&devdata->lockOpenFileCount);
+	down_write(&devdata->lockOpenFileCount);
 	if (devdata->openFileCount == 1)
 		lastFileClosed(filedata);
 	devdata->openFileCount--;
-	UNLOCKWRITESEM(&devdata->lockOpenFileCount);
+	up_write(&devdata->lockOpenFileCount);
 	write_lock(&devdata->lock_files);
 	list_del(&filedata->list_all);
 	write_unlock(&devdata->lock_files);
@@ -1052,9 +1052,9 @@ visorserial_serial_write(struct file *file,
 		goto Away;
 	}
 	devdata->counter.umodeBytesIn += count;
-	LOCKREADSEM(&devdata->lockVisorDev);
+	down_read(&devdata->lockVisorDev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
-		UNLOCKREADSEM(&devdata->lockVisorDev);
+		up_read(&devdata->lockVisorDev);
 		rc = 0;	/* eof */
 		goto Away;
 	}
@@ -1063,7 +1063,7 @@ visorserial_serial_write(struct file *file,
 		devdata->counter.hostBytesOut++;
 		writechars++;
 	}
-	UNLOCKREADSEM(&devdata->lockVisorDev);
+	up_read(&devdata->lockVisorDev);
 
 	rc = count;
 Away:
