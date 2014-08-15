@@ -86,6 +86,7 @@ otherwise return NULL.
 		struct resource *tmp, **p;
 		struct resource *root = NULL;
 		void __iomem  *pcpy = NULL;
+
 		root = &iomem_resource;	/*Root node, Global var */
 		p = &root->child;
 		for (;;) {
@@ -202,6 +203,7 @@ static void
 chipset_bus_destroy(ulong busNo)
 {
 	int rc = 0;
+
 	if (!uislib_client_inject_del_bus(busNo))
 		rc = -1;
 
