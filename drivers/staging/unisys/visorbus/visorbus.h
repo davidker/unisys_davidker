@@ -77,18 +77,18 @@ struct visor_driver {
 	 *  specified by driver.probe() (triggered ultimately by some call
 	 *  to driver_register() / bus_add_driver() / driver_attach()).
 	 */
-	int (*probe) (struct visor_device *dev);
+	int (*probe)(struct visor_device *dev);
 
 	/** Called when a new device is removed, by our remove() function
 	 *  specified by driver.remove() (triggered ultimately by some call
 	 *  to device_release_driver()).
 	 */
-	void (*remove) (struct visor_device *dev);
+	void (*remove)(struct visor_device *dev);
 
 	/** Called periodically, whenever there is a possibility that
 	 *  "something interesting" may have happened to the channel state.
 	 */
-	void (*channel_interrupt) (struct visor_device *dev);
+	void (*channel_interrupt)(struct visor_device *dev);
 
 	/** Called to initiate a change of the device's state.  If the return
 	 *  valu`e is < 0, there was an error and the state transition will NOT
@@ -97,9 +97,9 @@ struct visor_driver {
 	 *  just called) with the final status when either the state transition
 	 *  fails or completes successfully.
 	 */
-	int (*pause) (struct visor_device *dev,
+	int (*pause)(struct visor_device *dev,
 		      VISORBUS_STATE_COMPLETE_FUNC complete_func);
-	int (*resume) (struct visor_device *dev,
+	int (*resume)(struct visor_device *dev,
 		       VISORBUS_STATE_COMPLETE_FUNC complete_func);
 
 	/** These fields are for private use by the bus driver only. */
@@ -107,7 +107,7 @@ struct visor_driver {
 	struct driver_attribute version_attr;
 };
 
-#define to_visor_driver(x) container_of(x, struct visor_driver, driver);
+#define to_visor_driver(x) container_of(x, struct visor_driver, driver)
 
 /** A device type for things "plugged" into the visorbus bus */
 
@@ -131,7 +131,7 @@ struct visor_device {
 	BOOL being_removed;
 	BOOL responded_to_device_create;
 	struct kobject kobjchannel;	/* visorbus<x>/dev<y>/channel/ */
-	struct kobject kobjdevmajorminor; /* visorbus<x>/dev<y>/devmajorminor/ */
+	struct kobject kobjdevmajorminor; /* visorbus<x>/dev<y>/devmajorminor/*/
 	struct {
 		int major, minor;
 		void *attr;	/* private use by devmajorminor_attr.c you can
@@ -146,7 +146,7 @@ struct visor_device {
 	ulong chipset_devNo;
 };
 
-#define to_visor_device(x) container_of(x, struct visor_device, device);
+#define to_visor_device(x) container_of(x, struct visor_device, device)
 
 static inline void *
 visor_get_drvdata(struct visor_device *dev)
@@ -177,10 +177,10 @@ extern void visorbus_disable_channel_interrupts(struct visor_device *dev);
 
 /* Reference counting interfaces */
 #define VISORBUS_DEBUG_REFCOUNT_CHANGE(old, new, p, why)                \
-	INFODRV("refcount:%d-->%d %p <<%s>>", old, new, p, why);
+	INFODRV("refcount:%d-->%d %p <<%s>>", old, new, p, why)
 
 #define VISORBUS_DEBUG_REFCOUNT(count, p, why)                         \
-	INFODRV("refcount:%d %p <<%s>>", count, p, why);
+	INFODRV("refcount:%d %p <<%s>>", count, p, why)
 
 #define get_visordev(/*struct visor_device **/dev, /* char * */why, DBG) \
 do {							     \

@@ -23,8 +23,8 @@
 
 struct businst_attribute {
 	struct attribute attr;
-	 ssize_t(*show) (struct visorbus_devdata *, char *buf);
-	 ssize_t(*store) (struct visorbus_devdata *, const char *buf,
+	 ssize_t (*show)(struct visorbus_devdata*, char *buf);
+	 ssize_t (*store)(struct visorbus_devdata*, const char *buf,
 			  size_t count);
 };
 
