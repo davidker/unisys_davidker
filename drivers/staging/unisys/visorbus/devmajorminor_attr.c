@@ -33,14 +33,15 @@
 struct devmajorminor_attribute {
 	struct attribute attr;
 	int slot;
-	 ssize_t(*show) (struct visor_device *, int slot, char *buf);
-	 ssize_t(*store) (struct visor_device *, int slot, const char *buf,
+	 ssize_t (*show)(struct visor_device *, int slot, char *buf);
+	 ssize_t (*store)(struct visor_device *, int slot, const char *buf,
 			  size_t count);
 };
 
 static ssize_t DEVMAJORMINOR_ATTR(struct visor_device *dev, int slot, char *buf)
 {
 	int maxdevnodes = sizeof(dev->devnodes) / sizeof(dev->devnodes[0]);
+
 	if (slot < 0 || slot >= maxdevnodes)
 		return 0;
 	return snprintf(buf, PAGE_SIZE, "%d:%d\n",
@@ -85,9 +86,8 @@ devmajorminor_create_file(struct visor_device *dev, const char *name,
 	struct devmajorminor_attribute *myattr = NULL;
 	int x = -1, rc = 0, slot = -1;
 
-	if (DEVMAJORMINOR_DONTDOANYTHING) {
+	if (DEVMAJORMINOR_DONTDOANYTHING)
 		goto Away;
-	}
 	register_devmajorminor_attributes(dev);
 	for (slot = 0; slot < maxdevnodes; slot++)
 		if (dev->devnodes[slot].attr == NULL)
@@ -133,6 +133,7 @@ devmajorminor_remove_file(struct visor_device *dev, int slot)
 {
 	int maxdevnodes = sizeof(dev->devnodes) / sizeof(dev->devnodes[0]);
 	struct devmajorminor_attribute *myattr = NULL;
+
 	if (DEVMAJORMINOR_DONTDOANYTHING)
 		return;
 	if (slot < 0 || slot >= maxdevnodes)
@@ -151,6 +152,7 @@ devmajorminor_remove_all_files(struct visor_device *dev)
 {
 	int i = 0;
 	int maxdevnodes = sizeof(dev->devnodes) / sizeof(dev->devnodes[0]);
+
 	if (DEVMAJORMINOR_DONTDOANYTHING)
 		return;
 	for (i = 0; i < maxdevnodes; i++)
@@ -170,6 +172,7 @@ int
 register_devmajorminor_attributes(struct visor_device *dev)
 {
 	int rc = 0, x = 0;
+
 	if (DEVMAJORMINOR_DONTDOANYTHING)
 		goto Away;
 	if (dev->kobjdevmajorminor.parent != NULL)

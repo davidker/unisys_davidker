@@ -31,8 +31,8 @@
 
 struct channel_attribute {
 	struct attribute attr;
-	 ssize_t(*show) (struct visor_device *, char *buf);
-	 ssize_t(*store) (struct visor_device *, const char *buf, size_t count);
+	 ssize_t (*show)(struct visor_device*, char *buf);
+	 ssize_t (*store)(struct visor_device*, const char *buf, size_t count);
 };
 
 /* begin implementation of specific channel attributes to appear under
@@ -65,6 +65,7 @@ static ssize_t DEVICECHANNEL_ATTR_clientpartition(struct visor_device *dev,
 static ssize_t DEVICECHANNEL_ATTR_typeguid(struct visor_device *dev, char *buf)
 {
 	char s[99];
+
 	if (dev->visorchannel == NULL)
 		return 0;
 	return snprintf(buf, PAGE_SIZE, "%s\n",
@@ -74,6 +75,7 @@ static ssize_t DEVICECHANNEL_ATTR_typeguid(struct visor_device *dev, char *buf)
 static ssize_t DEVICECHANNEL_ATTR_zoneguid(struct visor_device *dev, char *buf)
 {
 	char s[99];
+
 	if (dev->visorchannel == NULL)
 		return 0;
 	return snprintf(buf, PAGE_SIZE, "%s\n",
@@ -180,6 +182,7 @@ static struct kobj_type channel_kobj_type = {
 int register_channel_attributes(struct visor_device *dev)
 {
 	int rc = 0, i = 0, x = 0;
+
 	if (CHANNELATTR_DONTDOANYTHING)
 		goto Away;
 	if (dev->kobjchannel.parent != NULL)
@@ -212,6 +215,7 @@ Away:
 void unregister_channel_attributes(struct visor_device *dev)
 {
 	int i = 0;
+
 	if (CHANNELATTR_DONTDOANYTHING)
 		return;
 	if (dev->kobjchannel.parent == NULL)
