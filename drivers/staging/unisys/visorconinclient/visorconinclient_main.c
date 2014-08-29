@@ -329,8 +329,7 @@ devdata_create(struct visor_device *dev)
 	rc = devdata;
 Away:
 	if (rc == NULL) {
-		if (devno >= 0)
-		{
+		if (devno >= 0) {
 			spin_lock(&devnopool_lock);
 			clear_bit(devno, DevNoPool);
 			spin_unlock(&devnopool_lock);
@@ -417,6 +416,7 @@ static void
 visorconinclient_remove(struct visor_device *dev)
 {
 	struct visorconinclient_devdata *devdata = visor_get_drvdata(dev);
+
 	INFODRV("%s", __func__);
 	if (devdata == NULL) {
 		ERRDRV("no devdata in %s", __func__);
@@ -551,7 +551,7 @@ register_client_mouse(void)
 	set_bit(BTN_RIGHT, visorinput_dev->keybit);
 	set_bit(BTN_MIDDLE, visorinput_dev->keybit);
 
-	if(registered_fb[0]) {
+	if (registered_fb[0]) {
 		fb0 = registered_fb[0];
 		xres = fb0->var.xres_virtual;
 		yres = fb0->var.yres_virtual;
@@ -689,6 +689,7 @@ handle_locking_key(struct input_dev *visorinput_dev,
 	}
 	if (led >= 0) {
 		int old_state = (test_bit(led, visorinput_dev->led) != 0);
+
 		if (old_state != desired_state) {
 			DEBUGDRV("LED %s change: %d-->%d",
 				 sled, old_state, desired_state);
@@ -709,6 +710,7 @@ static int
 scancode_to_keycode(int scancode)
 {
 	int keycode;
+
 	if (scancode > 0xff)
 		keycode = ext_keycode[(scancode >> 8) & 0xff];
 	else
@@ -747,6 +749,7 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 	BOOL locked = FALSE;
 
 	struct visorconinclient_devdata *devdata = visor_get_drvdata(dev);
+
 	if (devdata == NULL) {
 		ERRDEV(dev_name(&dev->device), "no devdata in %s",
 		       __func__);
