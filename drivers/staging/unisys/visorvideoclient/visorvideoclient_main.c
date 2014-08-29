@@ -160,8 +160,7 @@ devdata_create(struct visor_device *dev)
 	rc = devdata;
 Away:
 	if (rc == NULL) {
-		if (devno >= 0)
-		{
+		if (devno >= 0) {
 			spin_lock(&devnopool_lock);
 			clear_bit(devno, DevNoPool);
 			spin_unlock(&devnopool_lock);
