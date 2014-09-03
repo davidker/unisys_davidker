@@ -192,6 +192,7 @@ devdata_ro_property_show(struct device *ddev,
 	struct sparstop_devdata *devdata = dev_get_drvdata(ddev);
 	ulong offset = (ulong) (attr) - (ulong) (devdata->devdata_ro_property);
 	ulong ix = offset / sizeof(struct device_attribute);
+
 	if (ix >= propro_DEVDATAMAX) {
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
 		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
@@ -220,6 +221,7 @@ devdata_rw_property_show(struct device *ddev,
 	struct sparstop_devdata *devdata = dev_get_drvdata(ddev);
 	ulong offset = (ulong) (attr) - (ulong) (devdata->devdata_rw_property);
 	ulong ix = offset / sizeof(struct device_attribute);
+
 	if (ix >= proprw_DEVDATAMAX) {
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
 		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
@@ -243,6 +245,7 @@ get_ulong_from_buf(const char *buf, size_t count, ulong *answer)
 	char s[99];
 	ulong val;
 	char *p = s;
+
 	if (count >= sizeof(s))
 		return FALSE;
 	memcpy(s, buf, count);
@@ -327,10 +330,11 @@ static int
 register_ro_devdata_attributes(struct device *dev)
 {
 	int rc = 0, i = 0;
+
 	struct sparstop_devdata *devdata = dev_get_drvdata(dev);
 	struct device_attribute *pattr = devdata->devdata_ro_property;
-	INFODRV("%s:Entered pattr=%p", __func__, pattr);
 
+	INFODRV("%s:Entered pattr=%p", __func__, pattr);
 	pattr[propro_devmajorminor].attr.name = "devmajorminor";
 	pattr[propro_state].attr.name = "state";
 	pattr[propro_stateno].attr.name = "stateno";
@@ -357,8 +361,8 @@ register_rw_devdata_attributes(struct device *dev)
 	int rc = 0, i = 0;
 	struct sparstop_devdata *devdata = dev_get_drvdata(dev);
 	struct device_attribute *pattr = devdata->devdata_rw_property;
-	INFODRV("%s:Entered pattr=%p", __func__, pattr);
 
+	INFODRV("%s:Entered pattr=%p", __func__, pattr);
 	pattr[proprw_inprogress].attr.name = "inprogress";
 	for (i = 0; i < proprw_DEVDATAMAX; i++) {
 		pattr[i].attr.mode = S_IRUGO | S_IWUGO;
@@ -381,6 +385,7 @@ static int
 register_device_attributes(struct device *dev)
 {
 	int rc = 0;
+
 	rc = register_ro_devdata_attributes(dev);
 	if (rc < 0) {
 		ERRDRV("register_ro_devdata_attributes(dev): error (status=%d)\n",
@@ -404,6 +409,7 @@ unregister_ro_devdata_attributes(struct device *dev)
 	int rc = 0, i = 0;
 	struct sparstop_devdata *devdata;
 	struct device_attribute *pattr;
+
 	INFODRV("%s:Entered ", __func__);
 	devdata = dev_get_drvdata(dev);
 	pattr = devdata->devdata_ro_property;
@@ -418,6 +424,7 @@ unregister_rw_devdata_attributes(struct device *dev)
 	int rc = 0, i = 0;
 	struct sparstop_devdata *devdata;
 	struct device_attribute *pattr;
+
 	INFODRV("%s:Entered ", __func__);
 	devdata = dev_get_drvdata(dev);
 	pattr = devdata->devdata_rw_property;
@@ -430,6 +437,7 @@ static int
 unregister_device_attributes(struct device *dev)
 {
 	int rc = 0;
+
 	INFODRV("%s:Entered ", __func__);
 	unregister_ro_devdata_attributes(dev);
 	unregister_rw_devdata_attributes(dev);
@@ -522,6 +530,7 @@ static void
 remove_stop_device(struct device *dev)
 {
 	struct sparstop_devdata *devdata = dev_get_drvdata(dev);
+
 	INFODRV("%s:Entered ", __func__);
 	if (devdata == NULL) {
 		HUHDRV("no devdata in %s", __func__);
@@ -566,15 +575,14 @@ stop_device_release(struct device *dev)
 		return;
 	INFODEV(dev_name(dev),
 		"kernelmode stop device deallocated (no more refs)");
-	if(kstrtoul(dev_name(dev) + strlen(SPARSTOP_DEVICEPREFIX), 10, &ul)) {
+	if (kstrtoul(dev_name(dev) + strlen(SPARSTOP_DEVICEPREFIX), 10, &ul)) {
 		ERRDEV(dev_name(dev), "invalid device name-not freeing");
 		return;
 	}
 	spin_lock(&devnopool_lock);
 	clear_bit(ul, DevNoPool);
 	spin_unlock(&devnopool_lock);
-	if (dev)
-		kfree(dev);
+	kfree(dev);
 }
 
 static struct device *
@@ -657,16 +665,14 @@ Away:
 			devdata_put(devdata);
 		if (gotten)
 			put_device(dev);
-		else if (devno >= 0)
-		{
+		else if (devno >= 0) {
 			spin_lock(&devnopool_lock);
 			clear_bit(devno, DevNoPool);
 			spin_unlock(&devnopool_lock);
 		}
 		if (devdata)
 			devdata_put(devdata);
-		if (dev)
-			kfree(dev);
+		kfree(dev);
 	}
 	return rc;
 }
@@ -697,10 +703,10 @@ transition_state_guts(struct sparstop_devdata *devdata,
 {
 	if (devdata->state != old_state) {
 		ERRDEV(devdata->name,
-		       "Can't do state transition %s(%d)-->%s(%d) @%s:%d"
-		       "(old state=%s(%d) invalid)", state_str(old_state),
-		       old_state, state_str(new_state), new_state, filename,
-		       lineno, state_str(devdata->state), devdata->state);
+		       "Can't do state transition %s(%d)-->%s(%d) @%s:%d (old state=%s(%d) invalid)",
+			state_str(old_state), old_state, state_str(new_state),
+			new_state, filename, lineno, state_str(devdata->state),
+			devdata->state);
 		return FALSE;
 	}
 	INFODEV(devdata->name, "state transition %s(%d)-->%s(%d) @%s:%d",
@@ -837,13 +843,14 @@ sparstop_process_driver_diag_command(char *buf, size_t count, loff_t *ppos)
 #ifdef INCLUDE_TEST_INTERFACE
 	char s[99];
 	size_t i;
+
 	if (count >= sizeof(s))
 		return;
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count; i++) {
 		if (buf[i] == '\n' || buf[i] == '\r')
 			break;
-		else
-			s[i] = buf[i];
+		s[i] = buf[i];
+	}
 	s[i] = '\0';
 	if (strcmp(s, "initiate") == 0)
 		test_initiate();
