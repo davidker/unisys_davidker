@@ -40,7 +40,7 @@
 struct LINUXSERIAL_Tag {
 	int devno;
 	struct uart_port port;
-	void (*transmit_char) (void *, u8);
+	void (*transmit_char)(void *, u8);
 	void *context;
 	PERIODIC_WORK *periodic_work;
 };
@@ -108,7 +108,7 @@ lxser_config_port(struct uart_port *port, int flags)
  */
 static void
 lxser_tx_chars(struct uart_port *port, void *context,
-	       void (*transmit_char) (void *, u8))
+	       void (*transmit_char)(void *, u8))
 {
 	struct circ_buf *xmit = NULL;
 	struct tty_struct *tty;
