@@ -127,8 +127,7 @@ static struct visornoop_devdata *devdata_create(struct visor_device *dev)
 	rc = devdata;
 Away:
 	if (rc == NULL) {
-		if (devno >= 0)
-		{
+		if (devno >= 0) {
 			spin_lock(&devnopool_lock);
 			clear_bit(devno, DevNoPool);
 			spin_unlock(&devnopool_lock);
@@ -264,6 +263,7 @@ static void visornoop_cleanup(void)
 static void visornoop_show_device_info(struct seq_file *seq, void *p)
 {
 	struct visornoop_devdata *devdata = (struct visornoop_devdata *)(p);
+
 	seq_printf(seq, "devno=%d\n", devdata->devno);
 	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
 }
