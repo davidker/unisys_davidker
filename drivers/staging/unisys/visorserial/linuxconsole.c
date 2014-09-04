@@ -36,7 +36,7 @@ ulong visorserial_console_dropped_bytes = 0;
 static void *Console_context;
 static char Buffer[BUFFER_SIZE + 1];
 static int Buffer_ix;
-static void (*Transmit_char) (void *, u8);
+static void (*Transmit_char)(void *, u8);
 static DECLARE_RWSEM(Console_lock);
 
 void
@@ -45,6 +45,7 @@ lxcon_console_online(void *context, void (*transmit_char) (void *, u8))
 	down_write(&Console_lock);
 	if (context && transmit_char) {
 		int i = 0;
+
 		Console_context = context;
 		Transmit_char = transmit_char;
 		for (i = 0; i < Buffer_ix; i++)
