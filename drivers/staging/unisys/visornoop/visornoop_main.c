@@ -29,11 +29,9 @@
 #include "visorchannel.h"
 #include "controlframework.h"
 #include "channel_guid.h"
-#include "easyproc.h"
 
 static spinlock_t devnopool_lock;
 static void *DevNoPool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info Easyproc_driver_info;
 
 static int visornoop_probe(struct visor_device *dev);
 static void visornoop_remove(struct visor_device *dev);
@@ -84,7 +82,6 @@ struct visornoop_devdata {
 	char name[99];
 	struct list_head list_all;   /**< link within List_all_devices list */
 	struct kref kref;
-	struct easyproc_device_info procinfo;
 };
 
 /** List of all visornoop_devdata structs,
@@ -166,8 +163,6 @@ static int visornoop_probe(struct visor_device *dev)
 		goto Away;
 	}
 	visor_set_drvdata(dev, devdata);
-	visor_easyproc_InitDevice(&Easyproc_driver_info,
-				  &devdata->procinfo, devdata->devno, devdata);
 Away:
 	INFODRV("%s finished", __func__);
 	if (rc < 0) {
@@ -195,8 +190,6 @@ static void visornoop_remove(struct visor_device *dev)
 		goto Away;
 	}
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&Easyproc_driver_info,
-				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	kref_put(&devdata->kref, devdata_release);
 Away:
@@ -222,7 +215,6 @@ static int visornoop_resume(struct visor_device *dev,
 static void visornoop_cleanup_guts(void)
 {
 	visorbus_unregister_visor_driver(&visornoop_driver);
-	visor_easyproc_DeInitDriver(&Easyproc_driver_info);
 	if (DevNoPool != NULL) {
 		kfree(DevNoPool);
 		DevNoPool = NULL;
@@ -242,10 +234,6 @@ static int visornoop_init(void)
 		rc = -1;
 		goto Away;
 	}
-	visor_easyproc_InitDriver(&Easyproc_driver_info,
-			    MYDRVNAME,
-			    visornoop_show_driver_info,
-			    visornoop_show_device_info);
 	visorbus_register_visor_driver(&visornoop_driver);
 
 Away:
@@ -258,19 +246,6 @@ static void visornoop_cleanup(void)
 {
 	visornoop_cleanup_guts();
 	INFODRV("driver unloaded");
-}
-
-static void visornoop_show_device_info(struct seq_file *seq, void *p)
-{
-	struct visornoop_devdata *devdata = (struct visornoop_devdata *)(p);
-
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-}
-
-static void visornoop_show_driver_info(struct seq_file *seq)
-{
-	seq_printf(seq, "Version=%s\n", VERSION);
 }
 
 module_init(visornoop_init);
