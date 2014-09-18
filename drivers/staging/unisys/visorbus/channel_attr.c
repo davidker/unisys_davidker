@@ -102,7 +102,7 @@ static ssize_t DEVICECHANNEL_ATTR_dump(struct visor_device *dev, char *buf)
 {
 	struct seq_file *m = NULL;
 	int count = 0;
-
+/* TODO: replace this with debugfs code
 	if (dev->visorchannel == NULL)
 		return 0;
 	m = visor_seq_file_new_buffer(buf, PAGE_SIZE - 1);
@@ -112,6 +112,7 @@ static ssize_t DEVICECHANNEL_ATTR_dump(struct visor_device *dev, char *buf)
 	count = m->count;
 	visor_seq_file_done_buffer(m);
 	m = NULL;
+*/
 	return count;
 }
 

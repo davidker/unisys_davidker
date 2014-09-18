@@ -683,7 +683,7 @@ visorserial_init(void)
 	if (!visorserial_channeladdress) {
 		INFODRV("channeladdress module/kernel parameter not specified so issuing vmcall");
 		if (!VMCALL_SUCCESSFUL
-		    (Issue_VMCALL_IO_VISORSERIAL_ADDR(&visorserial_addr))) {
+		    (issue_vmcall_io_visorserial_addr(&visorserial_addr))) {
 			ERRDRV("channeladdress module/kernel parameter not specified and vmcall failed.");
 			rc = -1;
 			goto Away;

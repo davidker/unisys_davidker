@@ -127,7 +127,7 @@ struct visor_device {
 	 */
 	struct device device;
 	struct list_head list_all;
-	PERIODIC_WORK *periodic_work;
+	struct periodic_work *periodic_work;
 	BOOL being_removed;
 	BOOL responded_to_device_create;
 	struct kobject kobjchannel;	/* visorbus<x>/dev<y>/channel/ */

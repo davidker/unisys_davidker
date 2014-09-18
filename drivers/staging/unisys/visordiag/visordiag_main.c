@@ -765,7 +765,7 @@ visordiag_init(void)
 	}
 	if (!visordiag_channeladdress) {
 		INFODRV("channeladdress module/kernel parameter not specified so issue vmcall");
-		if (!VMCALL_SUCCESSFUL(Issue_VMCALL_IO_DIAG_ADDR(&diag_addr))) {
+		if (!VMCALL_SUCCESSFUL(issue_vmcall_io_diag_addr(&diag_addr))) {
 			ERRDRV("channeladdress module/kernel parameter not specified and vmcall failed.");
 			rc = -1;
 			goto Away;

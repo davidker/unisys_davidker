@@ -1242,7 +1242,7 @@ fix_vbus_devInfo(struct visor_device *visordev)
 		}
 	}
 
-	BusDeviceInfo_Init(&devInfo, chanTypeName,
+	bus_device_info_init(&devInfo, chanTypeName,
 			   visordrv->name, visordrv->version, visordrv->vertag);
 	write_vbus_devInfo(devdata->chan,
 			   &devdata->vbus_hdrInfo, &devInfo, devNo);
@@ -1832,7 +1832,7 @@ visorbus_init(void)
 	POSTCODE_LINUX_3(DRIVER_ENTRY_PC, rc, POSTCODE_SEVERITY_INFO);
 	INFODRV("bus driver version %s loaded", VERSION);
 
-	BusDeviceInfo_Init(&ClientBus_DriverInfo,
+	bus_device_info_init(&ClientBus_DriverInfo,
 			   "clientbus", MYDRVNAME,
 			   VERSION, NULL);
 
