@@ -348,7 +348,7 @@ virtnic_ISR(int irq, void *dev_id)
 		 */
 		vnicinfo->interrupts_disabled++;
 		mask = ~ULTRA_CHANNEL_ENABLE_INTS;
-		rc1 = uisqueue_InterlockedAnd(vnicinfo->flags_addr, mask);
+		rc1 = uisqueue_interlocked_and(vnicinfo->flags_addr, mask);
 	}
 	if (visor_signalqueue_empty(pChannelHeader, IOCHAN_FROM_IOPART)) {
 		vnicinfo->interrupts_notme++;
@@ -591,10 +591,10 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 		mask = ~(ULTRA_IO_CHANNEL_IS_POLLING |
 			 ULTRA_IO_DRIVER_DISABLES_INTS |
 			 ULTRA_IO_DRIVER_SUPPORTS_ENHANCED_RCVBUF_CHECKING);
-		uisqueue_InterlockedAnd(Features_addr, mask);
+		uisqueue_interlocked_and(Features_addr, mask);
 		mask = ULTRA_IO_DRIVER_ENABLES_INTS |
 		    ULTRA_IO_DRIVER_SUPPORTS_ENHANCED_RCVBUF_CHECKING;
-		uisqueue_InterlockedOr(Features_addr, mask);
+		uisqueue_interlocked_or(Features_addr, mask);
 
 		vnicinfo->thread_wait_ms = 2000;
 	}
@@ -1246,7 +1246,7 @@ process_incoming_rsps(void *v)
 		atomic_set(&vnicinfo->interrupt_rcvd, 0);
 		send_rcv_posts_if_needed(vnicinfo);
 		drain_queue(dc, cmdrsp, vnicinfo);
-		rc1 = uisqueue_InterlockedOr((u64 __iomem *)
+		rc1 = uisqueue_interlocked_or((u64 __iomem *)
 					     vnicinfo->flags_addr, mask);
 		if (dc->chinfo.threadinfo.should_stop)
 			break;
@@ -2431,17 +2431,17 @@ enable_ints_write(struct file *file, const char __user *buffer,
 				mask =
 				    ~(ULTRA_IO_CHANNEL_IS_POLLING |
 				      ULTRA_IO_DRIVER_DISABLES_INTS);
-				uisqueue_InterlockedAnd(Features_addr, mask);
+				uisqueue_interlocked_and(Features_addr, mask);
 				mask = ULTRA_IO_DRIVER_ENABLES_INTS;
-				uisqueue_InterlockedOr(Features_addr, mask);
+				uisqueue_interlocked_or(Features_addr, mask);
 				vnicinfo->thread_wait_ms = 2000;
 			} else {
 				mask =
 				    ~(ULTRA_IO_DRIVER_ENABLES_INTS |
 				      ULTRA_IO_DRIVER_DISABLES_INTS);
-				uisqueue_InterlockedAnd(Features_addr, mask);
+				uisqueue_interlocked_and(Features_addr, mask);
 				mask = ULTRA_IO_CHANNEL_IS_POLLING;
-				uisqueue_InterlockedOr(Features_addr, mask);
+				uisqueue_interlocked_or(Features_addr, mask);
 				vnicinfo->thread_wait_ms = 2;
 			}
 		}

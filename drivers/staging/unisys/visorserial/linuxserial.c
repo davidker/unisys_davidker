@@ -42,7 +42,7 @@ struct LINUXSERIAL_Tag {
 	struct uart_port port;
 	void (*transmit_char)(void *, u8);
 	void *context;
-	PERIODIC_WORK *periodic_work;
+	struct periodic_work *periodic_work;
 };
 
 static struct workqueue_struct *Workqueue;
