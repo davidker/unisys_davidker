@@ -1,6 +1,6 @@
 /* visorclientbus_main.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (C) 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -61,7 +61,7 @@ static VISORCHIPSET_BUSDEV_NOTIFIERS Chipset_Notifiers = {
 static VISORCHIPSET_BUSDEV_RESPONDERS Chipset_Responders;
 
 /* filled in with info about parent chipset driver when we register with it */
-static ULTRA_VBUS_DEVICEINFO Chipset_DriverInfo;
+static struct ultra_vbus_deviceinfo Chipset_DriverInfo;
 
 static void __iomem *
 get_virt(u64 phys_addr, u32 bytes, VISORCHIPSET_ADDRESSTYPE addrType)
@@ -139,9 +139,9 @@ chipset_preamble(ulong busNo, ulong devNo, VISORCHIPSET_DEVICE_INFO *devInfo)
 		return NULL;
 	}
 	if ((uuid_le_cmp(devInfo->chanInfo.channelTypeGuid,
-		    UltraVnicChannelProtocolGuid) != 0) &&
+			 spar_vnic_channel_protocol_uuid) != 0) &&
 	    (uuid_le_cmp(devInfo->chanInfo.channelTypeGuid,
-		    UltraVhbaChannelProtocolGuid) != 0)) {
+			 spar_vhba_channel_protocol_uuid) != 0)) {
 		ERRDRV("%s - I only know how to handle VNIC or VHBA client channels",
 		     __func__);
 		return NULL;
@@ -169,7 +169,7 @@ chipset_bus_create(ulong busNo)
 	}
 	/* Save off message with IOVM bus info in case of crash */
 	if ((uuid_le_cmp(busInfo.chanInfo.channelInstGuid,
-		    UltraSIOVMGuid) == 0)) {
+			 spar_siovm_uuid) == 0)) {
 		msg.hdr.Id = CONTROLVM_BUS_CREATE;
 		msg.hdr.Flags.responseExpected = 0;
 		msg.hdr.Flags.server = 0;
@@ -232,7 +232,7 @@ chipset_device_create(ulong busNo, ulong devNo)
 		goto Away;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-		    UltraVnicChannelProtocolGuid)) {
+			 spar_vnic_channel_protocol_uuid)) {
 		if (!uislib_client_inject_add_vnic
 		    (busNo, devNo,
 		     devInfo.chanInfo.channelAddr,
@@ -244,7 +244,7 @@ chipset_device_create(ulong busNo, ulong devNo)
 		}
 		goto Away;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-			   UltraVhbaChannelProtocolGuid)) {
+				spar_vhba_channel_protocol_uuid)) {
 		/* Save off message with hba info in case of crash */
 		if (busNo == dump_vhba_bus) {
 			msg.hdr.Id = CONTROLVM_DEVICE_CREATE;
@@ -259,7 +259,7 @@ chipset_device_create(ulong busNo, ulong devNo)
 			msg.cmd.createDevice.channelBytes =
 			    devInfo.chanInfo.nChannelBytes;
 			msg.cmd.createDevice.dataTypeGuid =
-			    UltraVhbaChannelProtocolGuid;
+					spar_vhba_channel_protocol_uuid;
 			visorchipset_save_message(&msg, CRASH_dev);
 		}
 
@@ -303,11 +303,11 @@ chipset_device_destroy(ulong busNo, ulong devNo)
 		goto Away;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-		    UltraVnicChannelProtocolGuid)) {
+			 spar_vnic_channel_protocol_uuid)) {
 		uislib_client_inject_del_vnic(busNo, devNo);
 		goto Away;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-			   UltraVhbaChannelProtocolGuid)) {
+				spar_vhba_channel_protocol_uuid)) {
 		uislib_client_inject_del_vhba(busNo, devNo);
 		goto Away;
 	}
@@ -334,11 +334,11 @@ chipset_device_pause(ulong busNo, ulong devNo)
 		goto Away;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-		    UltraVnicChannelProtocolGuid)) {
+			 spar_vnic_channel_protocol_uuid)) {
 		rc = uislib_client_inject_pause_vnic(busNo, devNo);
 		goto Away;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-			   UltraVhbaChannelProtocolGuid)) {
+				spar_vhba_channel_protocol_uuid)) {
 		rc = uislib_client_inject_pause_vhba(busNo, devNo);
 		goto Away;
 	}
@@ -367,11 +367,11 @@ chipset_device_resume(ulong busNo, ulong devNo)
 		goto Away;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-		    UltraVnicChannelProtocolGuid)) {
+			 spar_vnic_channel_protocol_uuid)) {
 		rc = uislib_client_inject_resume_vnic(busNo, devNo);
 		goto Away;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
-			   UltraVhbaChannelProtocolGuid)) {
+				spar_vhba_channel_protocol_uuid)) {
 		rc = uislib_client_inject_resume_vhba(busNo, devNo);
 		goto Away;
 	}

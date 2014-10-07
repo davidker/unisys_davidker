@@ -48,7 +48,7 @@ static struct visor_channeltype_descriptor visornoop_channel_types[] = {
 	/*  Note that the only channel type we expect to be reported by the
 	 *  bus driver is the CONTROLDIRECTOR channel.
 	 */
-	{ ULTRA_CONTROLDIRECTOR_CHANNEL_PROTOCOL_GUID,
+	{ SPAR_CONTROLDIRECTOR_CHANNEL_PROTOCOL_UUID,
 	  "controldirector", 1, ULONG_MAX },
 	{ NULL_UUID_LE, NULL, 0, 0 }
 };

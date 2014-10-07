@@ -116,9 +116,9 @@ static VISORCHIPSET_BUSDEV_NOTIFIERS Chipset_Notifiers = {
 static VISORCHIPSET_BUSDEV_RESPONDERS Chipset_Responders;
 
 /* filled in with info about parent chipset driver when we register with it */
-static ULTRA_VBUS_DEVICEINFO Chipset_DriverInfo;
+static struct ultra_vbus_deviceinfo Chipset_DriverInfo;
 /* filled in with info about this driver, wrt it servicing client busses */
-static ULTRA_VBUS_DEVICEINFO ClientBus_DriverInfo;
+static struct ultra_vbus_deviceinfo ClientBus_DriverInfo;
 
 /** list of visorbus_devdata structs, linked via .list_all */
 static LIST_HEAD(List_all_bus_instances);
@@ -360,7 +360,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 	ulong off;
 	char *p = buf;
 	u8 *partition_name;
-	ULTRA_VBUS_DEVICEINFO devInfo;
+	struct ultra_vbus_deviceinfo devInfo;
 
 	partition_name = "";
 	if (businst && businst->chan) {
@@ -373,7 +373,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 		p += x;
 		remain -= x;
 		x = visorchannel_read(businst->chan,
-				      offsetof(ULTRA_VBUS_CHANNEL_PROTOCOL,
+				      offsetof(struct ultra_vbus_channel_protocol,
 					       ChpInfo),
 				      &devInfo, sizeof(devInfo));
 		if (x >= 0) {
@@ -383,7 +383,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 			remain -= x;
 		}
 		x = visorchannel_read(businst->chan,
-				      offsetof(ULTRA_VBUS_CHANNEL_PROTOCOL,
+				      offsetof(struct ultra_vbus_channel_protocol,
 					       BusInfo),
 				      &devInfo, sizeof(devInfo));
 		if (x >= 0) {
@@ -392,7 +392,7 @@ static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
 			p += x;
 			remain -= x;
 		}
-		off = offsetof(ULTRA_VBUS_CHANNEL_PROTOCOL, DevInfo);
+		off = offsetof(struct ultra_vbus_channel_protocol, DevInfo);
 		i = 0;
 		while (off + sizeof(devInfo) <=
 		       visorchannel_get_nbytes(businst->chan)) {
@@ -1036,8 +1036,8 @@ initVbusChannel(VISORCHANNEL *chan)
 {
 	int rc = -1;
 	ulong allocatedBytes = visorchannel_get_nbytes(chan);
-	ULTRA_VBUS_CHANNEL_PROTOCOL *x =
-		kmalloc(sizeof(ULTRA_VBUS_CHANNEL_PROTOCOL),
+	struct ultra_vbus_channel_protocol *x =
+		kmalloc(sizeof(struct ultra_vbus_channel_protocol),
 			GFP_KERNEL|__GFP_NORETRY);
 
 	POSTCODE_LINUX_3(VBUS_CHANNEL_ENTRY_PC, rc, POSTCODE_SEVERITY_INFO);
@@ -1054,7 +1054,7 @@ initVbusChannel(VISORCHANNEL *chan)
 		goto Away;
 	}
 	if (visorchannel_read
-	    (chan, 0, x, sizeof(ULTRA_VBUS_CHANNEL_PROTOCOL)) < 0) {
+	    (chan, 0, x, sizeof(struct ultra_vbus_channel_protocol)) < 0) {
 		ERRDRV("%s chan read failed", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
@@ -1068,7 +1068,7 @@ initVbusChannel(VISORCHANNEL *chan)
 	}
 
 	if (visorchannel_write
-	    (chan, 0, x, sizeof(ULTRA_VBUS_CHANNEL_PROTOCOL)) < 0) {
+	    (chan, 0, x, sizeof(struct ultra_vbus_channel_protocol)) < 0) {
 		ERRDRV("%s chan write failed", __func__);
 		POSTCODE_LINUX_3(VBUS_CHANNEL_FAILURE_PC, chan,
 				 POSTCODE_SEVERITY_ERR);
@@ -1107,10 +1107,10 @@ get_vbus_headerInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo)
 		     hdrInfo->structBytes, sizeof(ULTRA_VBUS_HEADERINFO));
 		goto Away;
 	}
-	if (hdrInfo->deviceInfoStructBytes < sizeof(ULTRA_VBUS_DEVICEINFO)) {
+	if (hdrInfo->deviceInfoStructBytes < sizeof(struct ultra_vbus_deviceinfo)) {
 		ERRDRV("vbus channel not used, because devinfo too small (%d < %lu)",
 		     hdrInfo->deviceInfoStructBytes,
-		     sizeof(ULTRA_VBUS_DEVICEINFO));
+		     sizeof(struct ultra_vbus_deviceinfo));
 		goto Away;
 	}
 	rc = 0;
@@ -1118,11 +1118,11 @@ Away:
 	return rc;
 }
 
-/* Write the contents of <info> to the ULTRA_VBUS_CHANNEL_PROTOCOL.ChpInfo. */
+/* Write the contents of <info> to the struct ultra_vbus_channel_protocol.ChpInfo. */
 
 static int
 write_vbus_chpInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
-		   ULTRA_VBUS_DEVICEINFO *info)
+		   struct ultra_vbus_deviceinfo *info)
 {
 	int off = sizeof(ULTRA_CHANNEL_PROTOCOL) + hdrInfo->chpInfoByteOffset;
 	int rc = -1;
@@ -1141,11 +1141,11 @@ Away:
 	return rc;
 }
 
-/* Write the contents of <info> to the ULTRA_VBUS_CHANNEL_PROTOCOL.BusInfo. */
+/* Write the contents of <info> to the struct ultra_vbus_channel_protocol.BusInfo. */
 
 static int
 write_vbus_busInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
-		   ULTRA_VBUS_DEVICEINFO *info)
+		   struct ultra_vbus_deviceinfo *info)
 {
 	int off = sizeof(ULTRA_CHANNEL_PROTOCOL) + hdrInfo->busInfoByteOffset;
 	int rc = -1;
@@ -1165,11 +1165,11 @@ Away:
 }
 
 /* Write the contents of <info> to the
- * ULTRA_VBUS_CHANNEL_PROTOCOL.DevInfo[<devix>].
+ * struct ultra_vbus_channel_protocol.DevInfo[<devix>].
  */
 static int
 write_vbus_devInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
-		   ULTRA_VBUS_DEVICEINFO *info, int devix)
+		   struct ultra_vbus_deviceinfo *info, int devix)
 {
 	int off =
 	    (sizeof(ULTRA_CHANNEL_PROTOCOL) + hdrInfo->devInfoByteOffset) +
@@ -1204,7 +1204,7 @@ fix_vbus_devInfo(struct visor_device *visordev)
 	struct visor_driver *visordrv;
 	int busNo = visordev->chipset_busNo;
 	int devNo = visordev->chipset_devNo;
-	ULTRA_VBUS_DEVICEINFO devInfo;
+	struct ultra_vbus_deviceinfo devInfo;
 	const char *chanTypeName = NULL;
 
 	if (visordev->device.driver == NULL) {
