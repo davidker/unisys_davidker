@@ -214,7 +214,7 @@ static int write_vbus_bus_info(struct spar_vbus_channel_protocol *chan,
 }
 
 /* Write the contents of <info> to the
- * ULTRA_VBUS_CHANNEL_PROTOCOL.DevInfo[<devix>].
+ * struct ultra_vbus_channel_protocol.DevInfo[<devix>].
  */
 static int
 write_vbus_dev_info(struct spar_vbus_channel_protocol *chan,

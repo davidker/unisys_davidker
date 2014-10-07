@@ -209,7 +209,7 @@ struct virtnic_info {
 	struct proc_dir_entry *clientstr_proc_entry; /* this points to
 						    /proc/virtnic/eth?/clientstr
 						    file  */
-	struct InterruptInfo intr;	/* use recvInterrupt info  to connect
+	struct irq_info intr;		/* use recvInterrupt info  to connect
 					   to this to receive interrupts when
 					   IOs complete */
 	int interrupt_vector;
