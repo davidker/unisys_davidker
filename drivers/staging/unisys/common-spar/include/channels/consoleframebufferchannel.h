@@ -474,11 +474,11 @@ typedef struct CONSOLEFRAMEBUFFER_FirmwareVideoData  {
 	u32 firmwareSig2;   /*  #CONSOLEFRAMEBUFFER_FIRMWARESIG2 */
 } CONSOLEFRAMEBUFFER_FIRMWAREVIDEODATA;
 typedef struct _ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL {
-	ULTRA_CHANNEL_PROTOCOL Header;	/* 128 bytes */
+	struct channel_header Header;	/* 128 bytes */
 	CONSOLEFRAMEBUFFER_FIRMWAREVIDEODATA FirmwareVideoData;	/* 64k bytes */
 	CONSOLEFRAMEBUFFER_HOSTDRIVERVIDEODATA HostDriverVideoData; /* 64k */
-	SIGNAL_QUEUE_HEADER ImageBatchQ;	/* Signal Data in ImageBatch */
-	SIGNAL_QUEUE_HEADER RectsQ;	/* Signal Data in Rects */
+	struct signal_queue_header ImageBatchQ;	/* Signal Data in ImageBatch */
+	struct signal_queue_header RectsQ;	/* Signal Data in Rects */
 	 CONSOLEFRAMEBUFFER_IMAGEBATCH ImageBatch[CONSOLEFRAMEBUFFER_MAXOUTSTANDINGIMAGECHANGEBATCHES];
 	CONSOLEFRAMEBUFFER_CHANGERECTANGLE Rects[CONSOLEFRAMEBUFFER_MAXRECTS];
 
@@ -509,20 +509,21 @@ ULTRA_CONSOLEFRAMEBUFFER_init_channel(ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL 
 	else
 		firstq = ofs1;
 	memset(x, 0, sizeof(x->Header));	/* YES, JUST the header! */
-	x->Header.VersionId =
+	x->Header.version_id =
 	    ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL_VERSIONID;
-	x->Header.Signature =
+	x->Header.signature =
 	    ULTRA_CONSOLEFRAMEBUFFER_CHANNEL_PROTOCOL_SIGNATURE;
-	x->Header.SrvState = CHANNELSRV_UNINITIALIZED;
-	x->Header.HeaderSize = sizeof(x->Header);
-	x->Header.Size = CONSOLEFRAMEBUFFER_CH_SIZE;
-	x->Header.Type = UltraConsoleFramebufferChannelProtocolGuid;
-	x->Header.ZoneGuid = NULL_UUID_LE;
+	x->Header.srv_state = CHANNELSRV_UNINITIALIZED;
+	x->Header.header_size = sizeof(x->Header);
+	x->Header.size = CONSOLEFRAMEBUFFER_CH_SIZE;
+	x->Header.chtype = UltraConsoleFramebufferChannelProtocolGuid;
+	x->Header.zone_uuid = NULL_UUID_LE;
 
-	SignalInit(x, ImageBatchQ, ImageBatch,
+	spar_signal_init(x, ImageBatchQ, ImageBatch,
 		   CONSOLEFRAMEBUFFER_IMAGEBATCH, 0, 0);
-	SignalInit(x, RectsQ, Rects, CONSOLEFRAMEBUFFER_CHANGERECTANGLE, 0, 0);
-	x->Header.oChannelSpace = firstq;
+	spar_signal_init(x, RectsQ, Rects, CONSOLEFRAMEBUFFER_CHANGERECTANGLE,
+			 0, 0);
+	x->Header.ch_space_offset = firstq;
 }
 
 static inline void

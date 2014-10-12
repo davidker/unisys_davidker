@@ -1,6 +1,6 @@
 /* sparstop_main.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright ï¿½ 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -122,7 +122,7 @@ state_str(SPARSTOP_STATE state)
 
 #define TRANSITION_STATE(devdata, old_state, new_state) \
 	transition_state_guts(devdata, old_state, new_state, \
-			      PathName_Last_N_Nodes(__FILE__, 3), __LINE__)
+			      pathname_last_n_nodes(__FILE__, 3), __LINE__)
 
 /** This is the private data that we store for each kernelmode device.
  *  A pointer to this struct is kept in each "struct device", and can be
@@ -195,7 +195,7 @@ devdata_ro_property_show(struct device *ddev,
 
 	if (ix >= propro_DEVDATAMAX) {
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
-		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
+		       pathname_last_n_nodes(__FILE__, 3), __LINE__, ix);
 		return 0;
 	}
 	switch (ix) {
@@ -208,7 +208,7 @@ devdata_ro_property_show(struct device *ddev,
 		return sprintf(buf, "%d\n", devdata->state);
 	default:
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
-		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
+		       pathname_last_n_nodes(__FILE__, 3), __LINE__, ix);
 		return 0;
 	}
 	return 0;
@@ -224,7 +224,7 @@ devdata_rw_property_show(struct device *ddev,
 
 	if (ix >= proprw_DEVDATAMAX) {
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
-		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
+		       pathname_last_n_nodes(__FILE__, 3), __LINE__, ix);
 		return 0;
 	}
 	switch (ix) {
@@ -233,7 +233,7 @@ devdata_rw_property_show(struct device *ddev,
 			       (devdata->state == state_inProgress));
 	default:
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
-		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
+		       pathname_last_n_nodes(__FILE__, 3), __LINE__, ix);
 		return 0;
 	}
 	return 0;
@@ -276,7 +276,7 @@ devdata_rw_property_store(struct device *ddev,
 
 	if (ix >= proprw_DEVDATAMAX) {
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
-		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
+		       pathname_last_n_nodes(__FILE__, 3), __LINE__, ix);
 		return 0;
 	}
 	switch (ix) {
@@ -320,7 +320,7 @@ devdata_rw_property_store(struct device *ddev,
 		break;
 	default:
 		dev_err(ddev, "%s:%d trouble in paradise; ix=%lu\n",
-		       PathName_Last_N_Nodes(__FILE__, 3), __LINE__, ix);
+		       pathname_last_n_nodes(__FILE__, 3), __LINE__, ix);
 		return 0;
 	}
 	return strnlen(buf, count);
