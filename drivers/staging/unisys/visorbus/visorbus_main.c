@@ -1,6 +1,6 @@
 /* visorbus_main.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright ï¿½ 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1060,7 +1060,7 @@ initVbusChannel(VISORCHANNEL *chan)
 				 POSTCODE_SEVERITY_ERR);
 		goto Away;
 	}
-	if (!ULTRA_VBUS_CHANNEL_OK_SERVER(allocatedBytes, NULL)) {
+	if (!ULTRA_VBUS_CHANNEL_OK_SERVER(allocatedBytes)) {
 		ERRDRV("%s channel cannot be used", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
@@ -1091,13 +1091,13 @@ get_vbus_headerInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo)
 {
 	int rc = -1;
 
-	if (!ULTRA_VBUS_CHANNEL_OK_CLIENT(visorchannel_get_header(chan),
-					  NULL)) {
+	if (!SPAR_VBUS_CHANNEL_OK_CLIENT(visorchannel_get_header(chan),
+			                 NULL)) {
 		ERRDRV("vbus channel cannot be used - visorchannel_get_header failed");
 		goto Away;
 	}
 	if (visorchannel_read
-	    (chan, sizeof(ULTRA_CHANNEL_PROTOCOL), hdrInfo,
+	    (chan, sizeof(struct channel_header), hdrInfo,
 	     sizeof(*hdrInfo)) < 0) {
 		ERRDRV("%s chan read failed", __func__);
 		goto Away;
@@ -1124,7 +1124,7 @@ static int
 write_vbus_chpInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
 		   struct ultra_vbus_deviceinfo *info)
 {
-	int off = sizeof(ULTRA_CHANNEL_PROTOCOL) + hdrInfo->chpInfoByteOffset;
+	int off = sizeof(struct channel_header) + hdrInfo->chpInfoByteOffset;
 	int rc = -1;
 
 	if (hdrInfo->chpInfoByteOffset == 0) {
@@ -1147,7 +1147,7 @@ static int
 write_vbus_busInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
 		   struct ultra_vbus_deviceinfo *info)
 {
-	int off = sizeof(ULTRA_CHANNEL_PROTOCOL) + hdrInfo->busInfoByteOffset;
+	int off = sizeof(struct channel_header) + hdrInfo->busInfoByteOffset;
 	int rc = -1;
 
 	if (hdrInfo->busInfoByteOffset == 0) {
@@ -1172,7 +1172,7 @@ write_vbus_devInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
 		   struct ultra_vbus_deviceinfo *info, int devix)
 {
 	int off =
-	    (sizeof(ULTRA_CHANNEL_PROTOCOL) + hdrInfo->devInfoByteOffset) +
+	    (sizeof(struct channel_header) + hdrInfo->devInfoByteOffset) +
 	    (hdrInfo->deviceInfoStructBytes * devix);
 	int rc = -1;
 

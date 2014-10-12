@@ -1,4 +1,4 @@
-/* Copyright © 2010 - 2013 UNISYS CORPORATION
+/* Copyright ï¿½ 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -46,42 +46,35 @@ static const uuid_le UltraConsoleSerialChannelProtocolGuid =
 #define ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_VERSIONID 2
 #define ULTRA_CONSOLE_CHANNEL_PROTOCOL_VERSIONID       2	/* deprecated */
 #define ULTRA_CONSOLESERIAL_CHANNEL_OK_CLIENT(pChannel, logCtx)       \
-	    ULTRA_check_channel_client                               \
+	    spar_check_channel_client                               \
 			     (pChannel,                              \
 			      UltraConsoleSerialChannelProtocolGuid, \
 			      "consoleserial",                       \
 			      sizeof(ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL),\
 			      ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_VERSIONID,\
-			      ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_SIGNATURE,\
-			      __FILE__, __LINE__, logCtx               \
-)
+			      ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_SIGNATURE)
 #define ULTRA_CONSOLESERIAL_CHANNEL_OK_SERVER(actualBytes, logCtx)    \
-	    ULTRA_check_channel_server                               \
+	    spar_check_channel_server                               \
 			     (UltraConsoleSerialChannelProtocolGuid, \
 			      "consoleserial",                       \
 			      sizeof(ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL),\
-			      actualBytes,                           \
-			      __FILE__, __LINE__, logCtx               \
-)
+			      actualBytes)
 
 #define ULTRA_CONSOLE_CHANNEL_OK_CLIENT(pChannel, logCtx) /*deprecated*/ \
-	    ULTRA_check_channel_client                               \
+	    spar_check_channel_client                               \
 			     (pChannel,                              \
 			      UltraConsoleChannelProtocolGuid,       \
 			      "console",                             \
 			      sizeof(ULTRA_CONSOLE_CHANNEL_PROTOCOL),\
 			      ULTRA_CONSOLE_CHANNEL_PROTOCOL_VERSIONID,\
-			      ULTRA_CONSOLE_CHANNEL_PROTOCOL_SIGNATURE,\
-			      __FILE__, __LINE__, logCtx               \
-)
+			      ULTRA_CONSOLE_CHANNEL_PROTOCOL_SIGNATURE)
+
 #define ULTRA_CONSOLE_CHANNEL_OK_SERVER(actualBytes, logCtx) /*deprecated*/ \
-	    ULTRA_check_channel_server                               \
+	    spar_check_channel_server                               \
 			     (UltraConsoleChannelProtocolGuid,       \
 			      "console",                             \
 			      sizeof(ULTRA_CONSOLE_CHANNEL_PROTOCOL),\
-			      actualBytes,                           \
-			      __FILE__, __LINE__, logCtx               \
-)
+			      actualBytes)
 
 /* INPUT/OUTPUT buffer size */
 #define CONSOLE_IN_MAX_BUFFER_SIZE				512
@@ -144,13 +137,13 @@ typedef struct _ULTRA_SERIAL_IO_MODE  {
  *       ULTRA_CONSOLE_CHANNEL_PROTOCOL definition:
  */
     typedef struct _ULTRA_CONSOLE_CHANNEL_PROTOCOL {
-	ULTRA_CHANNEL_PROTOCOL ChannelHeader;	/* < Generic Channel
+	struct channel_header ChannelHeader;	/* < Generic Channel
 						 * Protocol Header */
 
 	/* Control is only needed for the EFI-only demo environment */
 	u8 Control[SIZEOF_CONSOLE_CONTROL];
-	SIGNAL_QUEUE_HEADER InQ;
-	SIGNAL_QUEUE_HEADER OutQ;
+	struct signal_queue_header InQ;
+	struct signal_queue_header OutQ;
 	u8 InData[CONSOLE_IN_MAX_BUFFER_SIZE];
 	u8 OutData[CONSOLE_OUT_MAX_BUFFER_SIZE];
 	/* OutData must remain last field of channel.  It can by
@@ -166,20 +159,20 @@ static inline void
 ULTRA_CONSOLESERIAL_init_channel(ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL * x)
 {
 	memset(x, 0, sizeof (ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL));
-	x->ChannelHeader.VersionId =
+	x->ChannelHeader.version_id =
 	    ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_VERSIONID;
-	x->ChannelHeader.Signature =
+	x->ChannelHeader.signature =
 	    ULTRA_CONSOLESERIAL_CHANNEL_PROTOCOL_SIGNATURE;
 	/* x->ChannelHeader.LegacyState = CHANNEL_ATTACHING; */
-	x->ChannelHeader.SrvState = CHANNELSRV_READY;
-	x->ChannelHeader.HeaderSize = sizeof (x->ChannelHeader);
-	x->ChannelHeader.Size = CONSOLE_CH_SIZE;
-	x->ChannelHeader.Type = UltraConsoleChannelProtocolGuid;
+	x->ChannelHeader.srv_state = CHANNELSRV_READY;
+	x->ChannelHeader.header_size = sizeof (x->ChannelHeader);
+	x->ChannelHeader.size = CONSOLE_CH_SIZE;
+	x->ChannelHeader.chtype = UltraConsoleChannelProtocolGuid;
 	/* x->ChannelHeader.Type = UltraConsoleSerialChannelProtocolGuid; */
-	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
-	SignalInit(x, InQ, InData, u8, 0, 0);
-	SignalInit(x, OutQ, OutData, u8, 0, 0);
-	x->ChannelHeader.oChannelSpace =
+	x->ChannelHeader.zone_uuid = NULL_UUID_LE;
+	spar_signal_init(x, InQ, InData, u8, 0, 0);
+	spar_signal_init(x, OutQ, OutData, u8, 0, 0);
+	x->ChannelHeader.ch_space_offset =
 	    offsetof(ULTRA_CONSOLE_CHANNEL_PROTOCOL, InQ);
 }
 
