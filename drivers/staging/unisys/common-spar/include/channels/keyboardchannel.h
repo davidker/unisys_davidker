@@ -57,7 +57,7 @@ static const uuid_le UltraKeyboardChannelProtocolGuid =
 
 #pragma pack(push, 1)		/* both GCC and VC now allow this pragma */
 typedef struct _ULTRA_KEYBOARD_CHANNEL_PROTOCOL {
-	ULTRA_CHANNEL_PROTOCOL ChannelHeader;	/* /< Generic Channel Protocol
+	struct channel_header ChannelHeader;	/* /< Generic Channel Protocol
 						 * Header */
 	u32 nInputReports;	/* /< max # entries in <inputReport> */
 	struct {
@@ -74,7 +74,7 @@ typedef struct _ULTRA_KEYBOARD_CHANNEL_PROTOCOL {
 				    */
 		/* remaining bits in this 32-bit word are available */
 	} flags;
-	SIGNAL_QUEUE_HEADER inputReportQ;
+	struct signal_queue_header inputReportQ;
 	ULTRA_INPUTREPORT inputReport[KEYBOARD_MAXINPUTREPORTS];
 } ULTRA_KEYBOARD_CHANNEL_PROTOCOL;
 
@@ -84,15 +84,15 @@ static inline void
 ULTRA_KEYBOARD_init_channel(ULTRA_KEYBOARD_CHANNEL_PROTOCOL *x)
 {
 	memset(x, 0, sizeof(ULTRA_KEYBOARD_CHANNEL_PROTOCOL));
-	x->ChannelHeader.VersionId = ULTRA_KEYBOARD_CHANNEL_PROTOCOL_VERSIONID;
-	x->ChannelHeader.Signature = ULTRA_KEYBOARD_CHANNEL_PROTOCOL_SIGNATURE;
-	x->ChannelHeader.SrvState = CHANNELSRV_UNINITIALIZED;
-	x->ChannelHeader.HeaderSize = sizeof(x->ChannelHeader);
-	x->ChannelHeader.Size = KEYBOARD_CH_SIZE;
-	x->ChannelHeader.Type = UltraKeyboardChannelProtocolGuid;
-	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
-	SignalInit(x, inputReportQ, inputReport, ULTRA_INPUTREPORT, 0, 0);
-	x->ChannelHeader.oChannelSpace =
+	x->ChannelHeader.version_id = ULTRA_KEYBOARD_CHANNEL_PROTOCOL_VERSIONID;
+	x->ChannelHeader.signature = ULTRA_KEYBOARD_CHANNEL_PROTOCOL_SIGNATURE;
+	x->ChannelHeader.srv_state = CHANNELSRV_UNINITIALIZED;
+	x->ChannelHeader.header_size = sizeof(x->ChannelHeader);
+	x->ChannelHeader.size = KEYBOARD_CH_SIZE;
+	x->ChannelHeader.chtype = UltraKeyboardChannelProtocolGuid;
+	x->ChannelHeader.zone_uuid = NULL_UUID_LE;
+	spar_signal_init(x, inputReportQ, inputReport, ULTRA_INPUTREPORT, 0, 0);
+	x->ChannelHeader.ch_space_offset =
 	    offsetof(ULTRA_KEYBOARD_CHANNEL_PROTOCOL, inputReportQ);
 	x->nInputReports = KEYBOARD_MAXINPUTREPORTS;
 }
