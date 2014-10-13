@@ -57,11 +57,11 @@ static const uuid_le UltraMouseChannelProtocolGuid =
 
 #pragma pack(push, 1)		/* both GCC and VC now allow this pragma */
 typedef struct _ULTRA_MOUSE_CHANNEL_PROTOCOL {
-	ULTRA_CHANNEL_PROTOCOL ChannelHeader;	/* /< Generic Channel Protocol
+	struct channel_header ChannelHeader;	/* /< Generic Channel Protocol
 						 * Header */
 	u32 nInputReports;	/* /< max # entries in <inputReport> */
 	u32 filler1;
-	SIGNAL_QUEUE_HEADER inputReportQ;
+	struct signal_queue_header inputReportQ;
 	ULTRA_INPUTREPORT inputReport[MOUSE_MAXINPUTREPORTS];
 } ULTRA_MOUSE_CHANNEL_PROTOCOL;
 
@@ -71,15 +71,15 @@ static inline void
 ULTRA_MOUSE_init_channel(ULTRA_MOUSE_CHANNEL_PROTOCOL *x)
 {
 	memset(x, 0, sizeof(ULTRA_MOUSE_CHANNEL_PROTOCOL));
-	x->ChannelHeader.VersionId = ULTRA_MOUSE_CHANNEL_PROTOCOL_VERSIONID;
-	x->ChannelHeader.Signature = ULTRA_MOUSE_CHANNEL_PROTOCOL_SIGNATURE;
-	x->ChannelHeader.SrvState = CHANNELSRV_UNINITIALIZED;
-	x->ChannelHeader.HeaderSize = sizeof(x->ChannelHeader);
-	x->ChannelHeader.Size = MOUSE_CH_SIZE;
-	x->ChannelHeader.Type = UltraMouseChannelProtocolGuid;
-	x->ChannelHeader.ZoneGuid = NULL_UUID_LE;
-	SignalInit(x, inputReportQ, inputReport, ULTRA_INPUTREPORT, 0, 0);
-	x->ChannelHeader.oChannelSpace =
+	x->ChannelHeader.version_id = ULTRA_MOUSE_CHANNEL_PROTOCOL_VERSIONID;
+	x->ChannelHeader.signature = ULTRA_MOUSE_CHANNEL_PROTOCOL_SIGNATURE;
+	x->ChannelHeader.srv_state = CHANNELSRV_UNINITIALIZED;
+	x->ChannelHeader.header_size = sizeof(x->ChannelHeader);
+	x->ChannelHeader.size = MOUSE_CH_SIZE;
+	x->ChannelHeader.chtype = UltraMouseChannelProtocolGuid;
+	x->ChannelHeader.zone_uuid = NULL_UUID_LE;
+	spar_signal_init(x, inputReportQ, inputReport, ULTRA_INPUTREPORT, 0, 0);
+	x->ChannelHeader.ch_space_offset =
 	    offsetof(ULTRA_MOUSE_CHANNEL_PROTOCOL, inputReportQ);
 	x->nInputReports = MOUSE_MAXINPUTREPORTS;
 }
