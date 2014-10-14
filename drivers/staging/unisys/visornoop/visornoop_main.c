@@ -36,9 +36,9 @@ static void *DevNoPool;	/**< pool to grab device numbers from */
 static int visornoop_probe(struct visor_device *dev);
 static void visornoop_remove(struct visor_device *dev);
 static int visornoop_pause(struct visor_device *dev,
-				  VISORBUS_STATE_COMPLETE_FUNC complete_func);
+			   VISORBUS_STATE_COMPLETE_FUNC complete_func);
 static int visornoop_resume(struct visor_device *dev,
-				   VISORBUS_STATE_COMPLETE_FUNC complete_func);
+			    VISORBUS_STATE_COMPLETE_FUNC complete_func);
 static void visornoop_show_device_info(struct seq_file *seq, void *p);
 static void visornoop_show_driver_info(struct seq_file *seq);
 
@@ -96,7 +96,7 @@ static struct visornoop_devdata *devdata_create(struct visor_device *dev)
 	struct visornoop_devdata *devdata = NULL;
 	int devno = -1;
 
-	devdata = kmalloc(sizeof(struct visornoop_devdata),
+	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
 		ERRDRV("allocation of visornoop_devdata failed\n");
@@ -197,7 +197,7 @@ Away:
 }
 
 static int visornoop_pause(struct visor_device *dev,
-				  VISORBUS_STATE_COMPLETE_FUNC complete_func)
+			   VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
 	INFODEV(dev_name(&dev->device), "paused");
 	complete_func(dev, 0);
@@ -205,7 +205,7 @@ static int visornoop_pause(struct visor_device *dev,
 }
 
 static int visornoop_resume(struct visor_device *dev,
-				   VISORBUS_STATE_COMPLETE_FUNC complete_func)
+			    VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
 	INFODEV(dev_name(&dev->device), "resumed");
 	complete_func(dev, 0);
