@@ -523,15 +523,15 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 
 	/* register_netdev */
 	LOGINFNAME(vnicinfo->netdev, "sendInterruptHandle=0x%16llX",
-		   (unsigned long long)vnicinfo->intr.sendInterruptHandle);
+		   (unsigned long long)vnicinfo->intr.send_irq_handle);
 	LOGINFNAME(vnicinfo->netdev, "recvInterruptHandle=0x%16llX",
-		   (unsigned long long)vnicinfo->intr.recvInterruptHandle);
+		   (unsigned long long)vnicinfo->intr.recv_irq_handle);
 	LOGINFNAME(vnicinfo->netdev, "recvInterruptVector=0x%8X",
-		   vnicinfo->intr.recvInterruptVector);
+		   vnicinfo->intr.recv_irq_vector);
 	LOGINFNAME(vnicinfo->netdev, "recvInterruptShared=0x%2X",
-		   vnicinfo->intr.recvInterruptShared);
+		   vnicinfo->intr.recv_irq_shared);
 	LOGINFNAME(vnicinfo->netdev, "netdev->name=%s", netdev->name);
-	vnicinfo->interrupt_vector = vnicinfo->intr.recvInterruptHandle &
+	vnicinfo->interrupt_vector = vnicinfo->intr.recv_irq_handle &
 	    INTERRUPT_VECTOR_MASK;
 	netdev->irq = vnicinfo->interrupt_vector;
 	err = register_netdev(netdev);
