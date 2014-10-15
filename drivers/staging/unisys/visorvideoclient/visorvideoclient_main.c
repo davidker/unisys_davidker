@@ -1,6 +1,6 @@
 /* visorvideoclient_main.c
  *
- * Copyright � 2011 - 2013 UNISYS CORPORATION
+ * Copyright (c) 2011 - 2014 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -100,6 +100,7 @@ struct visorvideoclient_devdata {
 	struct kref kref;
 	struct easyproc_device_info procinfo;
 };
+
 /** List of all visorvideoclient_devdata structs,
   * linked via the list_all member */
 static LIST_HEAD(List_all_devices);
@@ -132,7 +133,7 @@ devdata_create(struct visor_device *dev)
 	struct visorvideoclient_devdata *devdata = NULL;
 	int devno = -1;
 
-	devdata = kmalloc(sizeof(struct visorvideoclient_devdata),
+	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
 		ERRDRV("allocation of visorvideoclient_devdata failed)\n");
