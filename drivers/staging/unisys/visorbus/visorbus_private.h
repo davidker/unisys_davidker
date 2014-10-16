@@ -1,6 +1,6 @@
 /* visorbus_private.h
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (C) 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -47,7 +47,7 @@ struct visorbus_devdata {
 	struct kobject kobj;
 	VISORCHANNEL *chan;	/* channel area for bus itself */
 	BOOL vbus_valid;
-	ULTRA_VBUS_HEADERINFO vbus_hdrInfo;
+	ULTRA_VBUS_HEADERINFO vbus_hdr_info;
 };
 
 #endif

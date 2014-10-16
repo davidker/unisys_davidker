@@ -1,6 +1,6 @@
 /* visorbus.h
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (C) 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -38,7 +38,6 @@
 #include "visorchannel.h"
 #include "channel.h"
 
-extern struct bus_type visorbus_type;
 struct visor_driver;
 struct visor_device;
 
@@ -98,9 +97,9 @@ struct visor_driver {
 	 *  fails or completes successfully.
 	 */
 	int (*pause)(struct visor_device *dev,
-		      VISORBUS_STATE_COMPLETE_FUNC complete_func);
+		     VISORBUS_STATE_COMPLETE_FUNC complete_func);
 	int (*resume)(struct visor_device *dev,
-		       VISORBUS_STATE_COMPLETE_FUNC complete_func);
+		      VISORBUS_STATE_COMPLETE_FUNC complete_func);
 
 	/** These fields are for private use by the bus driver only. */
 	struct device_driver driver;
@@ -112,7 +111,6 @@ struct visor_driver {
 /** A device type for things "plugged" into the visorbus bus */
 
 struct visor_device {
-
 	/** visor driver can use the visorchannel member with the functions
 	 *  defined in visorchannel.h to access the channel
 	 */
@@ -142,8 +140,8 @@ struct visor_device {
 	struct semaphore visordriver_callback_lock;
 	BOOL pausing;
 	BOOL resuming;
-	ulong chipset_busNo;
-	ulong chipset_devNo;
+	ulong chipset_bus_no;
+	ulong chipset_dev_no;
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)
@@ -161,18 +159,18 @@ visor_set_drvdata(struct visor_device *dev, void *data)
 }
 
 #ifndef STANDALONE_CLIENT
-extern int visorbus_register_visor_driver(struct visor_driver *);
-extern void visorbus_unregister_visor_driver(struct visor_driver *);
-extern int visorbus_read_channel(struct visor_device *dev,
-				 ulong offset, void *dest, ulong nbytes);
-extern int visorbus_write_channel(struct visor_device *dev,
-				  ulong offset, void *src, ulong nbytes);
-extern int visorbus_clear_channel(struct visor_device *dev,
-				  ulong offset, u8 ch, ulong nbytes);
-extern int visorbus_registerdevnode(struct visor_device *dev,
-				    const char *name, int major, int minor);
-extern void visorbus_enable_channel_interrupts(struct visor_device *dev);
-extern void visorbus_disable_channel_interrupts(struct visor_device *dev);
+int visorbus_register_visor_driver(struct visor_driver *);
+void visorbus_unregister_visor_driver(struct visor_driver *);
+int visorbus_read_channel(struct visor_device *dev,
+			  ulong offset, void *dest, ulong nbytes);
+int visorbus_write_channel(struct visor_device *dev,
+			   ulong offset, void *src, ulong nbytes);
+int visorbus_clear_channel(struct visor_device *dev,
+			   ulong offset, u8 ch, ulong nbytes);
+int visorbus_registerdevnode(struct visor_device *dev,
+			     const char *name, int major, int minor);
+void visorbus_enable_channel_interrupts(struct visor_device *dev);
+void visorbus_disable_channel_interrupts(struct visor_device *dev);
 #endif
 
 /* Reference counting interfaces */
