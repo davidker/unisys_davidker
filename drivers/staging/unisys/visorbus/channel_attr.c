@@ -1,6 +1,6 @@
 /* channel_attr.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (C) 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -100,9 +100,9 @@ static ssize_t DEVICECHANNEL_ATTR_typename(struct visor_device *dev, char *buf)
 
 static ssize_t DEVICECHANNEL_ATTR_dump(struct visor_device *dev, char *buf)
 {
-	struct seq_file *m = NULL;
 	int count = 0;
 /* TODO: replace this with debugfs code
+	struct seq_file *m = NULL;
 	if (dev->visorchannel == NULL)
 		return 0;
 	m = visor_seq_file_new_buffer(buf, PAGE_SIZE - 1);
@@ -185,14 +185,14 @@ int register_channel_attributes(struct visor_device *dev)
 	int rc = 0, i = 0, x = 0;
 
 	if (CHANNELATTR_DONTDOANYTHING)
-		goto Away;
+		goto away;
 	if (dev->kobjchannel.parent != NULL)
-		goto Away;	/* already registered */
+		goto away;	/* already registered */
 	x = kobject_init_and_add(&dev->kobjchannel, &channel_kobj_type,
 				 &dev->device.kobj, "channel");
 	if (x < 0) {
 		rc = x;
-		goto Away;
+		goto away;
 	}
 
 	kobject_uevent(&dev->kobjchannel, KOBJ_ADD);
@@ -200,16 +200,16 @@ int register_channel_attributes(struct visor_device *dev)
 	for (i = 0;
 	     i < sizeof(all_channel_attrs) / sizeof(struct channel_attribute);
 	     i++)
-		x = channel_create_file(dev, &(all_channel_attrs[i]));
+		x = channel_create_file(dev, &all_channel_attrs[i]);
 	if (x < 0) {
 		while (--i >= 0)
-			channel_remove_file(dev, &(all_channel_attrs[i]));
+			channel_remove_file(dev, &all_channel_attrs[i]);
 		kobject_del(&dev->kobjchannel);
 		kobject_put(&dev->kobjchannel);
 		rc = x;
-		goto Away;
+		goto away;
 	}
-Away:
+away:
 	return rc;
 }
 
@@ -224,7 +224,7 @@ void unregister_channel_attributes(struct visor_device *dev)
 	for (i = 0;
 	     i < sizeof(all_channel_attrs) / sizeof(struct channel_attribute);
 	     i++)
-		channel_remove_file(dev, &(all_channel_attrs[i]));
+		channel_remove_file(dev, &all_channel_attrs[i]);
 
 	kobject_del(&dev->kobjchannel);
 	kobject_put(&dev->kobjchannel);

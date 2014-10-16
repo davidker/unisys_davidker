@@ -1,6 +1,6 @@
 /* devmajorminor_attr.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (C) 2010 - 2013 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -87,20 +87,19 @@ devmajorminor_create_file(struct visor_device *dev, const char *name,
 	int x = -1, rc = 0, slot = -1;
 
 	if (DEVMAJORMINOR_DONTDOANYTHING)
-		goto Away;
+		goto away;
 	register_devmajorminor_attributes(dev);
 	for (slot = 0; slot < maxdevnodes; slot++)
 		if (dev->devnodes[slot].attr == NULL)
 			break;
 	if (slot == maxdevnodes) {
 		rc = -ENOMEM;
-		goto Away;
+		goto away;
 	}
-	myattr = kmalloc(sizeof(struct devmajorminor_attribute),
-			 GFP_KERNEL|__GFP_NORETRY);
+	myattr = kmalloc(sizeof(*myattr), GFP_KERNEL|__GFP_NORETRY);
 	if (myattr == NULL) {
 		rc = -ENOMEM;
-		goto Away;
+		goto away;
 	}
 	memset(myattr, 0, sizeof(struct devmajorminor_attribute));
 	myattr->show = DEVMAJORMINOR_ATTR;
@@ -114,10 +113,10 @@ devmajorminor_create_file(struct visor_device *dev, const char *name,
 	x = sysfs_create_file(&dev->kobjdevmajorminor, &myattr->attr);
 	if (x < 0) {
 		rc = x;
-		goto Away;
+		goto away;
 	}
 	kobject_uevent(&dev->device.kobj, KOBJ_ONLINE);
-Away:
+away:
 	if (rc < 0) {
 		if (myattr != NULL) {
 			kfree(myattr);
@@ -138,7 +137,7 @@ devmajorminor_remove_file(struct visor_device *dev, int slot)
 		return;
 	if (slot < 0 || slot >= maxdevnodes)
 		return;
-	myattr = (struct devmajorminor_attribute *) (dev->devnodes[slot].attr);
+	myattr = (struct devmajorminor_attribute *)(dev->devnodes[slot].attr);
 	if (myattr == NULL)
 		return;
 	sysfs_remove_file(&dev->kobjdevmajorminor, &myattr->attr);
@@ -174,20 +173,20 @@ register_devmajorminor_attributes(struct visor_device *dev)
 	int rc = 0, x = 0;
 
 	if (DEVMAJORMINOR_DONTDOANYTHING)
-		goto Away;
+		goto away;
 	if (dev->kobjdevmajorminor.parent != NULL)
-		goto Away;	/* already registered */
+		goto away;	/* already registered */
 	x = kobject_init_and_add(&dev->kobjdevmajorminor,
 				 &devmajorminor_kobj_type, &dev->device.kobj,
 				 "devmajorminor");
 	if (x < 0) {
 		rc = x;
-		goto Away;
+		goto away;
 	}
 
 	kobject_uevent(&dev->kobjdevmajorminor, KOBJ_ADD);
 
-Away:
+away:
 	return rc;
 }
 

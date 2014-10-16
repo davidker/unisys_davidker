@@ -43,7 +43,7 @@ struct subsys_private {
 
 	struct list_head class_interfaces;
 	struct kset glue_dirs;
-	struct mutex class_mutex;
+	struct mutex class_mutex; /* ignore */
 	struct class *class;
 };
 
@@ -64,43 +64,43 @@ struct bus_type_private {
 
 static int visorbus_uevent(struct device *xdev, struct kobj_uevent_env *env);
 static int visorbus_match(struct device *xdev, struct device_driver *xdrv);
-static void fix_vbus_devInfo(struct visor_device *visordev);
+static void fix_vbus_dev_info(struct visor_device *visordev);
 
 /** This describes the TYPE of bus.
  *  (Don't confuse this with an INSTANCE of the bus.)
  */
-static struct bus_type Visorbus_type = {
+static struct bus_type visorbus_type = {
 	.name = "visorbus",
 	.match = visorbus_match,
 	.uevent = visorbus_uevent,
 };
 
-static struct delayed_work Periodic_test_work;
+static struct delayed_work periodic_work;
 
 /* YES, we need 2 workqueues.
  * The reason is, workitems on the test queue may need to cancel
  * workitems on the other queue.  You will be in for trouble if you try to
  * do this with workitems queued on the same workqueue.
  */
-static struct workqueue_struct *Periodic_test_workqueue;
-static struct workqueue_struct *Periodic_dev_workqueue;
-static long long BusCount;	/** number of bus instances */
-static long long TotalDevicesCreated;
+static struct workqueue_struct *periodic_test_workqueue;
+static struct workqueue_struct *periodic_dev_workqueue;
+static long long bus_count;	/** number of bus instances */
+static long long total_devices_created;
 					/** ever-increasing */
 
-static void chipset_bus_create(ulong busNo);
-static void chipset_bus_destroy(ulong busNo);
-static void chipset_device_create(ulong busNo, ulong devNo);
-static void chipset_device_destroy(ulong busNo, ulong devNo);
-static void chipset_device_pause(ulong busNo, ulong devNo);
-static void chipset_device_resume(ulong busNo, ulong devNo);
-static int chipset_get_channel_info(uuid_le typeGuid, ulong *minSize,
-				    ulong *maxSize);
+static void chipset_bus_create(ulong bus_no);
+static void chipset_bus_destroy(ulong bus_no);
+static void chipset_device_create(ulong bus_no, ulong dev_no);
+static void chipset_device_destroy(ulong bus_no, ulong dev_no);
+static void chipset_device_pause(ulong bus_no, ulong dev_no);
+static void chipset_device_resume(ulong bus_no, ulong dev_no);
+static int chipset_get_channel_info(uuid_le type_guid, ulong *min_size,
+				    ulong *max_size);
 
 /** These functions are implemented herein, and are called by the chipset
  *  driver to notify us about specific events.
  */
-static VISORCHIPSET_BUSDEV_NOTIFIERS Chipset_Notifiers = {
+static VISORCHIPSET_BUSDEV_NOTIFIERS chipset_notifiers = {
 	.bus_create = chipset_bus_create,
 	.bus_destroy = chipset_bus_destroy,
 	.device_create = chipset_device_create,
@@ -113,18 +113,18 @@ static VISORCHIPSET_BUSDEV_NOTIFIERS Chipset_Notifiers = {
 /** These functions are implemented in the chipset driver, and we call them
  *  herein when we want to acknowledge a specific event.
  */
-static VISORCHIPSET_BUSDEV_RESPONDERS Chipset_Responders;
+static VISORCHIPSET_BUSDEV_RESPONDERS chipset_responders;
 
 /* filled in with info about parent chipset driver when we register with it */
-static struct ultra_vbus_deviceinfo Chipset_DriverInfo;
+static struct ultra_vbus_deviceinfo chipset_driverinfo;
 /* filled in with info about this driver, wrt it servicing client busses */
-static struct ultra_vbus_deviceinfo ClientBus_DriverInfo;
+static struct ultra_vbus_deviceinfo clientbus_driverinfo;
 
 /** list of visorbus_devdata structs, linked via .list_all */
-static LIST_HEAD(List_all_bus_instances);
-static struct visorbus_devdata *Devdata;	/* for testing ONLY */
+static LIST_HEAD(list_all_bus_instances);
+static struct visorbus_devdata *devdata;	/* for testing ONLY */
 /** list of visor_device structs, linked via .list_all */
-static LIST_HEAD(List_all_device_instances);
+static LIST_HEAD(list_all_device_instances);
 
 static int
 visorbus_uevent(struct device *xdev, struct kobj_uevent_env *env)
@@ -152,21 +152,23 @@ visorbus_match(struct device *xdev, struct device_driver *xdrv)
 	channel_type = visorchannel_get_uuid(dev->visorchannel);
 	if (visorbus_forcematch) {
 		rc = 1;
-		goto Away;
+		goto away;
 	}
 	if (visorbus_forcenomatch)
-		goto Away;
+		goto away;
 
 	if (drv->channel_types == NULL)
-		goto Away;
-	for (i = 0; (uuid_le_cmp(drv->channel_types[i].guid, NULL_UUID_LE) != 0)
-			|| (drv->channel_types[i].name == NULL); i++)
+		goto away;
+	for (i = 0;
+	     (uuid_le_cmp(drv->channel_types[i].guid, NULL_UUID_LE) != 0) ||
+	     (drv->channel_types[i].name == NULL);
+	     i++)
 		if (uuid_le_cmp(drv->channel_types[i].guid,
-			channel_type) == 0) {
+				channel_type) == 0) {
 			rc = i + 1;
-			goto Away;
+			goto away;
 		}
-Away:
+away:
 	return rc;
 }
 
@@ -243,10 +245,10 @@ register_bustype_attributes(void)
 {
 	int rc = 0;
 
-	rc = bus_create_file(&Visorbus_type, &bustype_attr_version);
+	rc = bus_create_file(&visorbus_type, &bustype_attr_version);
 	if (rc < 0) {
 		ERRDRV("bus_create_file(&Visorbus_type, &bustype_attr_version) failed: (status=%d)\n", rc);
-		goto Away;
+		goto away;
 	}
 	/* Here we make up for the fact that bus_type does not yet have a
 	 * member to keep track of multiple bus instances for a given bus
@@ -255,22 +257,22 @@ register_bustype_attributes(void)
 	 */
 	kobject_set_name(&businstances.kobj, "busses");
 	businstances.kobj.ktype = &businst_kobj_type;
-	businstances.kobj.parent = &Visorbus_type.p->subsys.kobj;
+	businstances.kobj.parent = &visorbus_type.p->subsys.kobj;
 	rc = kset_register(&businstances);
 	if (rc < 0) {
 		ERRDRV("kset_register(&businstances) failed: (status=%d)\n",
 		       rc);
-		goto Away;
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
 static void
 unregister_bustype_attributes(void)
 {
-	bus_remove_file(&Visorbus_type, &bustype_attr_version);
+	bus_remove_file(&visorbus_type, &bustype_attr_version);
 	kset_unregister(&businstances);
 }
 
@@ -285,64 +287,65 @@ unregister_bustype_attributes(void)
  *
  */
 
-static ssize_t BUSINST_ATTR_partitionHandle(struct visorbus_devdata *businst,
-					    char *buf) {
-	VISORCHIPSET_BUS_INFO busInfo;
+static ssize_t businst_attr_partition_handle(struct visorbus_devdata *businst,
+					     char *buf) {
+	VISORCHIPSET_BUS_INFO bus_info;
 	int len = 0;
 
-	if (businst && visorchipset_get_bus_info(businst->devno, &busInfo))
+	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE,
 			       "0x%Lx\n",
-			       (unsigned long long) busInfo.partitionHandle);
+			       (unsigned long long)bus_info.partitionHandle);
 	return len;
 }
 
-static ssize_t BUSINST_ATTR_partitionGuid(struct visorbus_devdata *businst,
-					  char *buf) {
-	VISORCHIPSET_BUS_INFO busInfo;
+static ssize_t businst_attr_partition_guid(struct visorbus_devdata *businst,
+					   char *buf) {
+	VISORCHIPSET_BUS_INFO bus_info;
 	int len = 0;
 
-	if (businst && visorchipset_get_bus_info(businst->devno, &busInfo))
+	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE, "{%pUb}\n",
-			       &busInfo.partitionGuid);
+			       &bus_info.partitionGuid);
 	return len;
 }
 
-static ssize_t BUSINST_ATTR_partitionName(struct visorbus_devdata *businst,
-					  char *buf) {
-	VISORCHIPSET_BUS_INFO busInfo;
+static ssize_t businst_attr_partition_name(struct visorbus_devdata *businst,
+					   char *buf) {
+	VISORCHIPSET_BUS_INFO bus_info;
 	int len = 0;
 
 	if (businst &&
-	    visorchipset_get_bus_info(businst->devno, &busInfo) && busInfo.name)
-		len = snprintf(buf, PAGE_SIZE, "%s\n", busInfo.name);
+	    visorchipset_get_bus_info(businst->devno, &bus_info) &&
+	    bus_info.name)
+		len = snprintf(buf, PAGE_SIZE, "%s\n", bus_info.name);
 	return len;
 }
 
-static ssize_t BUSINST_ATTR_channelAddr(struct visorbus_devdata *businst,
-					char *buf) {
-	VISORCHIPSET_BUS_INFO busInfo;
+static ssize_t businst_attr_channel_addr(struct visorbus_devdata *businst,
+					 char *buf) {
+	VISORCHIPSET_BUS_INFO bus_info;
 	int len = 0;
 
-	if (businst && visorchipset_get_bus_info(businst->devno, &busInfo))
+	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE, "0x%Lx\n", (unsigned long long)
-			       busInfo.chanInfo.channelAddr);
+			       bus_info.chanInfo.channelAddr);
 	return len;
 }
 
-static ssize_t BUSINST_ATTR_nChannelBytes(struct visorbus_devdata *businst,
-					  char *buf) {
-	VISORCHIPSET_BUS_INFO busInfo;
+static ssize_t businst_attr_nchannel_bytes(struct visorbus_devdata *businst,
+					   char *buf) {
+	VISORCHIPSET_BUS_INFO bus_info;
 	int len = 0;
 
-	if (businst && visorchipset_get_bus_info(businst->devno, &busInfo))
+	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE, "0x%Lx\n", (unsigned long long)
-			       busInfo.chanInfo.nChannelBytes);
+			       bus_info.chanInfo.nChannelBytes);
 	return len;
 }
 
-static ssize_t BUSINST_ATTR_channelId(struct visorbus_devdata *businst,
-				      char *buf) {
+static ssize_t businst_attr_channel_id(struct visorbus_devdata *businst,
+				       char *buf) {
 	int len = 0;
 
 	if (businst && businst->chan) {
@@ -353,78 +356,80 @@ static ssize_t BUSINST_ATTR_channelId(struct visorbus_devdata *businst,
 	return len;
 }
 
-static ssize_t BUSINST_ATTR_clientBusInfo(struct visorbus_devdata *businst,
-					  char *buf) {
-	VISORCHIPSET_BUS_INFO busInfo;
+static ssize_t businst_attr_client_bus_info(struct visorbus_devdata *businst,
+					    char *buf) {
+	VISORCHIPSET_BUS_INFO bus_info;
 	int i, x, remain = PAGE_SIZE;
 	ulong off;
 	char *p = buf;
 	u8 *partition_name;
-	struct ultra_vbus_deviceinfo devInfo;
+	struct ultra_vbus_deviceinfo dev_info;
 
 	partition_name = "";
 	if (businst && businst->chan) {
-		if (visorchipset_get_bus_info(businst->devno, &busInfo) &&
-		    busInfo.name)
-			partition_name = busInfo.name;
+		if (visorchipset_get_bus_info(businst->devno, &bus_info) &&
+		    bus_info.name)
+			partition_name = bus_info.name;
 		x = snprintf(p, remain,
 			     "Client device / client driver info for %s partition (vbus #%d):\n",
 			     partition_name, businst->devno);
 		p += x;
 		remain -= x;
 		x = visorchannel_read(businst->chan,
-				      offsetof(struct ultra_vbus_channel_protocol,
+				      offsetof(struct
+					       ultra_vbus_channel_protocol,
 					       ChpInfo),
-				      &devInfo, sizeof(devInfo));
+				      &dev_info, sizeof(dev_info));
 		if (x >= 0) {
-			x = vbuschannel_devinfo_to_string(&devInfo, p,
-				remain, -1);
+			x = vbuschannel_devinfo_to_string(&dev_info, p,
+							  remain, -1);
 			p += x;
 			remain -= x;
 		}
 		x = visorchannel_read(businst->chan,
-				      offsetof(struct ultra_vbus_channel_protocol,
+				      offsetof(struct
+					       ultra_vbus_channel_protocol,
 					       BusInfo),
-				      &devInfo, sizeof(devInfo));
+				      &dev_info, sizeof(dev_info));
 		if (x >= 0) {
-			x = vbuschannel_devinfo_to_string(&devInfo, p,
-				remain, -1);
+			x = vbuschannel_devinfo_to_string(&dev_info, p,
+							  remain, -1);
 			p += x;
 			remain -= x;
 		}
 		off = offsetof(struct ultra_vbus_channel_protocol, DevInfo);
 		i = 0;
-		while (off + sizeof(devInfo) <=
+		while (off + sizeof(dev_info) <=
 		       visorchannel_get_nbytes(businst->chan)) {
 			x = visorchannel_read(businst->chan,
-					      off, &devInfo, sizeof(devInfo));
+					      off, &dev_info, sizeof(dev_info));
 			if (x >= 0) {
 				x = vbuschannel_devinfo_to_string
-				    (&devInfo, p, remain, i);
+				    (&dev_info, p, remain, i);
 				p += x;
 				remain -= x;
 			}
-			off += sizeof(devInfo);
+			off += sizeof(dev_info);
 			i++;
 		}
 	}
 	return PAGE_SIZE - remain;
 }
 
-static struct businst_attribute businst_attr_partitionHandle =
-	__ATTR(partitionHandle, S_IRUGO, BUSINST_ATTR_partitionHandle, NULL);
-static struct businst_attribute businst_attr_partitionGuid =
-	__ATTR(partitionGuid, S_IRUGO, BUSINST_ATTR_partitionGuid, NULL);
-static struct businst_attribute businst_attr_partitionName =
-	__ATTR(partitionName, S_IRUGO, BUSINST_ATTR_partitionName, NULL);
-static struct businst_attribute businst_attr_channelAddr =
-	__ATTR(channelAddr, S_IRUGO, BUSINST_ATTR_channelAddr, NULL);
-static struct businst_attribute businst_attr_nChannelBytes =
-	__ATTR(nChannelBytes, S_IRUGO, BUSINST_ATTR_nChannelBytes, NULL);
-static struct businst_attribute businst_attr_channelId =
-	__ATTR(channelId, S_IRUGO, BUSINST_ATTR_channelId, NULL);
-static struct businst_attribute businst_attr_clientBusInfo =
-	__ATTR(clientBusInfo, S_IRUGO, BUSINST_ATTR_clientBusInfo, NULL);
+static struct businst_attribute ba_partition_handle =
+	__ATTR(partition_handle, S_IRUGO, businst_attr_partition_handle, NULL);
+static struct businst_attribute ba_partition_guid =
+	__ATTR(partition_guid, S_IRUGO, businst_attr_partition_guid, NULL);
+static struct businst_attribute ba_partition_name =
+	__ATTR(partition_name, S_IRUGO, businst_attr_partition_name, NULL);
+static struct businst_attribute ba_channel_addr =
+	__ATTR(channel_addr, S_IRUGO, businst_attr_channel_addr, NULL);
+static struct businst_attribute ba_nchannel_bytes =
+	__ATTR(nchannel_bytes, S_IRUGO, businst_attr_nchannel_bytes, NULL);
+static struct businst_attribute ba_channel_id =
+	__ATTR(channel_id, S_IRUGO, businst_attr_channel_id, NULL);
+static struct businst_attribute ba_client_bus_info =
+	__ATTR(client_bus_info, S_IRUGO, businst_attr_client_bus_info, NULL);
 
 static int
 register_businst_attributes(struct visorbus_devdata *businst)
@@ -436,62 +441,69 @@ register_businst_attributes(struct visorbus_devdata *businst)
 				  NULL, "visorbus%d", businst->devno);
 	if (rc < 0) {
 		ERRDRV("kobject_init_and_add() failed: (status=%d)\n", rc);
-		goto Away;
+		goto away;
 	}
 
-	rc = businst_create_file(businst, &businst_attr_partitionHandle);
+	rc = businst_create_file(businst, &ba_partition_handle);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_partitionHandle) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_partition_handle) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
-	rc = businst_create_file(businst, &businst_attr_partitionGuid);
+	rc = businst_create_file(businst, &ba_partition_guid);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_partitionGuid) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_partition_guid) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
-	rc = businst_create_file(businst, &businst_attr_partitionName);
+	rc = businst_create_file(businst, &ba_partition_name);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_partitionName) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_partition_name) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
-	rc = businst_create_file(businst, &businst_attr_channelAddr);
+	rc = businst_create_file(businst, &ba_channel_addr);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_channelAddr) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_channel_addr) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
-	rc = businst_create_file(businst, &businst_attr_nChannelBytes);
+	rc = businst_create_file(businst, &ba_nchannel_bytes);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_nChannelBytes) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_nchannel_bytes) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
-	rc = businst_create_file(businst, &businst_attr_channelId);
+	rc = businst_create_file(businst, &ba_channel_id);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_channelId) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_channel_id) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
-	rc = businst_create_file(businst, &businst_attr_clientBusInfo);
+	rc = businst_create_file(businst, &ba_client_bus_info);
 	if (rc < 0) {
-		ERRDRV("businst_create_file(businst_attr_clientBusInfo) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("businst_create_file(ba_client_bus_info) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
 
 	kobject_uevent(&businst->kobj, KOBJ_ADD);
 
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
 static void
 unregister_businst_attributes(struct visorbus_devdata *businst)
 {
-	businst_remove_file(businst, &businst_attr_partitionHandle);
-	businst_remove_file(businst, &businst_attr_partitionGuid);
-	businst_remove_file(businst, &businst_attr_partitionName);
-	businst_remove_file(businst, &businst_attr_channelAddr);
-	businst_remove_file(businst, &businst_attr_nChannelBytes);
-	businst_remove_file(businst, &businst_attr_channelId);
-	businst_remove_file(businst, &businst_attr_clientBusInfo);
+	businst_remove_file(businst, &ba_partition_handle);
+	businst_remove_file(businst, &ba_partition_guid);
+	businst_remove_file(businst, &ba_partition_name);
+	businst_remove_file(businst, &ba_channel_addr);
+	businst_remove_file(businst, &ba_nchannel_bytes);
+	businst_remove_file(businst, &ba_channel_id);
+	businst_remove_file(businst, &ba_client_bus_info);
 	kobject_put(&businst->kobj);
 }
 
@@ -519,11 +531,12 @@ register_driver_attributes(struct visor_driver *drv)
 	drv->version_attr = version;
 	rc = driver_create_file(&drv->driver, &drv->version_attr);
 	if (rc < 0) {
-		ERRDRV("driver_create_file(&drv->driver, &drv->version_attr) failed: (status=%d)\n", rc);
-		goto Away;
+		ERRDRV("driver_create_file(&drv->driver, &drv->version_attr) failed: (status=%d)\n",
+		       rc);
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
@@ -555,7 +568,7 @@ static struct device_attribute visor_device_attrs[] = {
 static void
 dev_periodic_work(void *xdev)
 {
-	struct visor_device *dev = (struct visor_device *) xdev;
+	struct visor_device *dev = (struct visor_device *)xdev;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
 	down(&dev->visordriver_callback_lock);
@@ -571,7 +584,8 @@ dev_start_periodic_work(struct visor_device *dev)
 {
 	if (dev->being_removed)
 		return;
-	get_visordev(dev, "delayed work", visorbus_debugref);	/* now up by at least 2 */
+	/* now up by at least 2 */
+	get_visordev(dev, "delayed work", visorbus_debugref);
 	if (!visor_periodic_work_start(dev->periodic_work))
 		put_visordev(dev, "delayed work", visorbus_debugref);
 }
@@ -610,17 +624,17 @@ visordriver_probe_device(struct device *xdev)
 		ERRDEV(dev_name(&dev->device),
 		       "driver did not specify probe func");
 		rc = -1;
-		goto Away;
+		goto away;
 	}
 	rc = drv->probe(dev);
 	if (rc < 0) {
 		ERRDRV("drv->probe(dev) failed: (status=%d)\n", rc);
-		goto Away;
+		goto away;
 	}
-	fix_vbus_devInfo(dev);
+	fix_vbus_dev_info(dev);
 	up(&dev->visordriver_callback_lock);
 	rc = 0;
-Away:
+away:
 	if (rc == 0) {
 		INFODEV(dev_name(&dev->device), "child device probed");
 		/* device ref count is now up by one (get_device) */
@@ -637,10 +651,10 @@ Away:
 	 */
 	if (!dev->responded_to_device_create) {
 		dev->responded_to_device_create = TRUE;
-		if (Chipset_Responders.device_create)
-			(*Chipset_Responders.device_create) (dev->chipset_busNo,
-							     dev->chipset_devNo,
-							     rc);
+		if (chipset_responders.device_create)
+			(*chipset_responders.device_create)(dev->chipset_bus_no,
+							    dev->chipset_dev_no,
+							    rc);
 	}
 	return rc;
 }
@@ -730,7 +744,7 @@ int visorbus_register_visor_driver(struct visor_driver *drv)
 
 	INFODRV("child device driver %s loaded", drv->name);
 	drv->driver.name = drv->name;
-	drv->driver.bus = &Visorbus_type;
+	drv->driver.bus = &visorbus_type;
 	drv->driver.probe = visordriver_probe_device;
 	drv->driver.remove = visordriver_remove_device;
 	drv->driver.owner = drv->owner;
@@ -751,16 +765,16 @@ int visorbus_register_visor_driver(struct visor_driver *drv)
 	if (rc < 0) {
 		ERRDRV("driver_register(&drv->driver) failed: (status=%d)\n",
 		       rc);
-		goto Away;
+		goto away;
 	}
 	rc = register_driver_attributes(drv);
 	if (rc < 0) {
 		ERRDRV("register_driver_attributes(drv) failed: (status=%d)\n",
 		       rc);
-		goto Away;
+		goto away;
 	}
 
-Away:
+away:
 
 	if (rc)
 		ERRDRV("visorbus_register_visor_driver failed");
@@ -845,8 +859,8 @@ EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
  */
 static int
 create_visor_device(struct visorbus_devdata *devdata,
-		    ulong chipset_busNo, ulong chipset_devNo,
-		    VISORCHIPSET_CHANNEL_INFO chanInfo, u64 partitionHandle)
+		    ulong chipset_bus_no, ulong chipset_dev_no,
+		    VISORCHIPSET_CHANNEL_INFO chanInfo, u64 partition_handle)
 {
 	int rc = -1;
 	VISORCHANNEL *visorchannel = NULL;
@@ -854,47 +868,47 @@ create_visor_device(struct visorbus_devdata *devdata,
 	BOOL gotten = FALSE, registered1 = FALSE, registered2 = FALSE;
 	char s[99];
 
-	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, chipset_devNo, chipset_busNo,
+	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, chipset_dev_no, chipset_bus_no,
 			 POSTCODE_SEVERITY_INFO);
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	INFODRV("Channel discovered (addr=0x%-16.16llx, size=%llu)",
-		(unsigned long long) chanInfo.channelAddr,
-		(unsigned long long) chanInfo.nChannelBytes);
+		(unsigned long long)chanInfo.channelAddr,
+		(unsigned long long)chanInfo.nChannelBytes);
 	visorchannel = visorchannel_create(chanInfo.channelAddr,
-					   (ulong) chanInfo.nChannelBytes,
+					   (ulong)chanInfo.nChannelBytes,
 					   chanInfo.channelTypeGuid);
 	if (visorchannel == NULL) {
 		ERRDRV("channel addr = 0x%-16.16llx, size = %llu",
-		       (unsigned long long) chanInfo.channelAddr,
-		       (unsigned long long) chanInfo.nChannelBytes);
+		       (unsigned long long)chanInfo.channelAddr,
+		       (unsigned long long)chanInfo.nChannelBytes);
 
 		ERRDRV("visorchannel_create failed: (status = -1)\n");
-		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_devNo,
+		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 	INFODRV("Channel %s connected (addr=0x%-16.16llx, size=%llu)",
 		visorchannel_id(visorchannel, s),
-		(unsigned long long) chanInfo.channelAddr,
-		(unsigned long long) chanInfo.nChannelBytes);
+		(unsigned long long)chanInfo.channelAddr,
+		(unsigned long long)chanInfo.nChannelBytes);
 
-	dev = kmalloc(sizeof(struct visor_device), GFP_KERNEL|__GFP_NORETRY);
+	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
 		ERRDRV("failed to allocate visor_device: (status = -1)\n");
-		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_devNo,
+		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	memset(dev, 0, sizeof(struct visor_device));
 	dev->visorchannel = visorchannel;
 	dev->channel_type_guid = chanInfo.channelTypeGuid;
 	dev->channel_bytes = chanInfo.nChannelBytes;
-	dev->chipset_busNo = chipset_busNo;
-	dev->chipset_devNo = chipset_devNo;
+	dev->chipset_bus_no = chipset_bus_no;
+	dev->chipset_dev_no = chipset_dev_no;
 	dev->device.parent = devdata->dev;
 	sema_init(&dev->visordriver_callback_lock, 1);	/* unlocked */
-	dev->device.bus = &Visorbus_type;
+	dev->device.bus = &visorbus_type;
 	device_initialize(&dev->device);
 	dev->device.release = visorbus_release_device;
 	/* keep a reference just for us (now 2) */
@@ -902,14 +916,14 @@ create_visor_device(struct visorbus_devdata *devdata,
 	gotten = TRUE;
 	dev->periodic_work =
 		visor_periodic_work_create(POLLJIFFIES_NORMALCHANNEL,
-				Periodic_dev_workqueue,
-				dev_periodic_work,
-				dev, dev_name(&dev->device));
+					   periodic_dev_workqueue,
+					   dev_periodic_work,
+					   dev, dev_name(&dev->device));
 	if (dev->periodic_work == NULL) {
 		ERRDRV("failed to create periodic_work: (status = -1)\n");
-		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_devNo,
+		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	/* bus_id must be a unique name with respect to this bus TYPE
@@ -917,7 +931,7 @@ create_visor_device(struct visorbus_devdata *devdata,
 	 * number within the name.
 	 */
 	dev_set_name(&dev->device, "vbus%lu:dev%lu",
-		     chipset_busNo, chipset_devNo);
+		     chipset_bus_no, chipset_dev_no);
 
 	/*  device_add does this:
 	 *    bus_add_device(dev)
@@ -938,9 +952,9 @@ create_visor_device(struct visorbus_devdata *devdata,
 	rc = device_add(&dev->device);
 	if (rc < 0) {
 		ERRDRV("device_add(&dev->device) failed: (status = %d)\n", rc);
-		POSTCODE_LINUX_3(DEVICE_ADD_PC, chipset_busNo,
+		POSTCODE_LINUX_3(DEVICE_ADD_PC, chipset_bus_no,
 				 DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	/* note: device_register is simply device_initialize + device_add */
@@ -950,9 +964,9 @@ create_visor_device(struct visorbus_devdata *devdata,
 	if (rc < 0) {
 		ERRDRV("register_channel_attributes(dev) failed: (status = %d)\n",
 		       rc);
-		POSTCODE_LINUX_3(DEVICE_REGISTER_FAILURE_PC, chipset_devNo,
+		POSTCODE_LINUX_3(DEVICE_REGISTER_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	refcount_debug(dev, "after register_channel_attributes");
@@ -962,9 +976,9 @@ create_visor_device(struct visorbus_devdata *devdata,
 	if (rc < 0) {
 		ERRDRV("register_devmajorminor_attributes(dev) failed: (status = %d)\n",
 		       rc);
-		POSTCODE_LINUX_3(DEVICE_REGISTER_FAILURE_PC, chipset_devNo,
+		POSTCODE_LINUX_3(DEVICE_REGISTER_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	refcount_debug(dev, "after register_devmajorminor_attributes");
@@ -976,7 +990,7 @@ create_visor_device(struct visorbus_devdata *devdata,
 	refcount_debug(dev, "device creation complete");
 	rc = 0;
 
-Away:
+away:
 	if (rc < 0) {
 		if (registered2)
 			unregister_devmajorminor_attributes(dev);
@@ -991,8 +1005,8 @@ Away:
 		}
 		kfree(dev);
 	} else {
-		TotalDevicesCreated++;
-		list_add_tail(&dev->list_all, &List_all_device_instances);
+		total_devices_created++;
+		list_add_tail(&dev->list_all, &list_all_device_instances);
 	}
 	return rc;
 }
@@ -1016,9 +1030,9 @@ find_visor_device_by_channel(HOSTADDRESS channel_physaddr)
 	struct list_head *listentry, *listtmp;
 
 	INFODRV("looking for dev with channel addr=0x%Lx",
-		(unsigned long long) (channel_physaddr));
+		(unsigned long long)(channel_physaddr));
 
-	list_for_each_safe(listentry, listtmp, &List_all_device_instances) {
+	list_for_each_safe(listentry, listtmp, &list_all_device_instances) {
 		struct visor_device *dev = list_entry(listentry,
 						      struct visor_device,
 						      list_all);
@@ -1027,15 +1041,15 @@ find_visor_device_by_channel(HOSTADDRESS channel_physaddr)
 			return dev;
 	}
 	ERRDRV("dev with channel addr=0x%Lx not found",
-	       (unsigned long long) (channel_physaddr));
+	       (unsigned long long)(channel_physaddr));
 	return NULL;
 }
 
 static int
-initVbusChannel(VISORCHANNEL *chan)
+init_vbus_channel(VISORCHANNEL *chan)
 {
 	int rc = -1;
-	ulong allocatedBytes = visorchannel_get_nbytes(chan);
+	ulong allocated_bytes = visorchannel_get_nbytes(chan);
 	struct ultra_vbus_channel_protocol *x =
 		kmalloc(sizeof(struct ultra_vbus_channel_protocol),
 			GFP_KERNEL|__GFP_NORETRY);
@@ -1045,26 +1059,26 @@ initVbusChannel(VISORCHANNEL *chan)
 	if (x == NULL) {
 		ERRDRV("%s failed malloc", __func__);
 		POSTCODE_LINUX_2(MALLOC_FAILURE_PC, POSTCODE_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
-	if (visorchannel_clear(chan, 0, 0, allocatedBytes) < 0) {
+	if (visorchannel_clear(chan, 0, 0, allocated_bytes) < 0) {
 		ERRDRV("%s clear failed", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 	if (visorchannel_read
 	    (chan, 0, x, sizeof(struct ultra_vbus_channel_protocol)) < 0) {
 		ERRDRV("%s chan read failed", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
-	if (!ULTRA_VBUS_CHANNEL_OK_SERVER(allocatedBytes)) {
+	if (!ULTRA_VBUS_CHANNEL_OK_SERVER(allocated_bytes)) {
 		ERRDRV("%s channel cannot be used", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	if (visorchannel_write
@@ -1072,13 +1086,13 @@ initVbusChannel(VISORCHANNEL *chan)
 		ERRDRV("%s chan write failed", __func__);
 		POSTCODE_LINUX_3(VBUS_CHANNEL_FAILURE_PC, chan,
 				 POSTCODE_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	POSTCODE_LINUX_3(VBUS_CHANNEL_EXIT_PC, chan, POSTCODE_SEVERITY_INFO);
 	rc = 0;
 
-Away:
+away:
 	if (x != NULL) {
 		kfree(x);
 		x = NULL;
@@ -1087,80 +1101,83 @@ Away:
 }
 
 static int
-get_vbus_headerInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo)
+get_vbus_header_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info)
 {
 	int rc = -1;
 
 	if (!SPAR_VBUS_CHANNEL_OK_CLIENT(visorchannel_get_header(chan),
-			                 NULL)) {
+					 NULL)) {
 		ERRDRV("vbus channel cannot be used - visorchannel_get_header failed");
-		goto Away;
+		goto away;
 	}
 	if (visorchannel_read
-	    (chan, sizeof(struct channel_header), hdrInfo,
-	     sizeof(*hdrInfo)) < 0) {
+	    (chan, sizeof(struct channel_header), hdr_info,
+	     sizeof(*hdr_info)) < 0) {
 		ERRDRV("%s chan read failed", __func__);
-		goto Away;
+		goto away;
 	}
-	if (hdrInfo->structBytes < sizeof(ULTRA_VBUS_HEADERINFO)) {
+	if (hdr_info->structBytes < sizeof(ULTRA_VBUS_HEADERINFO)) {
 		ERRDRV("vbus channel not used, because header too small (%d < %lu)",
-		     hdrInfo->structBytes, sizeof(ULTRA_VBUS_HEADERINFO));
-		goto Away;
+		       hdr_info->structBytes, sizeof(ULTRA_VBUS_HEADERINFO));
+		goto away;
 	}
-	if (hdrInfo->deviceInfoStructBytes < sizeof(struct ultra_vbus_deviceinfo)) {
+	if (hdr_info->deviceInfoStructBytes <
+	    sizeof(struct ultra_vbus_deviceinfo)) {
 		ERRDRV("vbus channel not used, because devinfo too small (%d < %lu)",
-		     hdrInfo->deviceInfoStructBytes,
-		     sizeof(struct ultra_vbus_deviceinfo));
-		goto Away;
+		       hdr_info->deviceInfoStructBytes,
+		       sizeof(struct ultra_vbus_deviceinfo));
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
-/* Write the contents of <info> to the struct ultra_vbus_channel_protocol.ChpInfo. */
+/* Write the contents of <info> to the struct
+ * ultra_vbus_channel_protocol.ChpInfo. */
 
 static int
-write_vbus_chpInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
-		   struct ultra_vbus_deviceinfo *info)
+write_vbus_chp_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info,
+		    struct ultra_vbus_deviceinfo *info)
 {
-	int off = sizeof(struct channel_header) + hdrInfo->chpInfoByteOffset;
+	int off = sizeof(struct channel_header) + hdr_info->chpInfoByteOffset;
 	int rc = -1;
 
-	if (hdrInfo->chpInfoByteOffset == 0) {
+	if (hdr_info->chpInfoByteOffset == 0) {
 		ERRDRV("vbus channel not used, because chpInfoByteOffset == 0");
-		goto Away;
+		goto away;
 	}
 	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
 		ERRDRV("%s chan write of chpInfo to offset=%d", __func__,
 		       off);
-		goto Away;
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
-/* Write the contents of <info> to the struct ultra_vbus_channel_protocol.BusInfo. */
+/* Write the contents of <info> to the struct
+ * ultra_vbus_channel_protocol.BusInfo. */
 
 static int
-write_vbus_busInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
-		   struct ultra_vbus_deviceinfo *info)
+write_vbus_bus_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info,
+		    struct ultra_vbus_deviceinfo *info)
 {
-	int off = sizeof(struct channel_header) + hdrInfo->busInfoByteOffset;
+	int off = sizeof(struct channel_header) + hdr_info->busInfoByteOffset;
 	int rc = -1;
 
-	if (hdrInfo->busInfoByteOffset == 0) {
+	if (hdr_info->busInfoByteOffset == 0) {
 		ERRDRV("vbus channel not used, because busInfoByteOffset == 0");
-		goto Away;
+		goto away;
 	}
 	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
 		ERRDRV("%s chan write of busInfo to offset=%d", __func__,
 		       off);
-		goto Away;
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
@@ -1168,25 +1185,25 @@ Away:
  * struct ultra_vbus_channel_protocol.DevInfo[<devix>].
  */
 static int
-write_vbus_devInfo(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdrInfo,
-		   struct ultra_vbus_deviceinfo *info, int devix)
+write_vbus_dev_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info,
+		    struct ultra_vbus_deviceinfo *info, int devix)
 {
 	int off =
-	    (sizeof(struct channel_header) + hdrInfo->devInfoByteOffset) +
-	    (hdrInfo->deviceInfoStructBytes * devix);
+	    (sizeof(struct channel_header) + hdr_info->devInfoByteOffset) +
+	    (hdr_info->deviceInfoStructBytes * devix);
 	int rc = -1;
 
-	if (hdrInfo->devInfoByteOffset == 0) {
+	if (hdr_info->devInfoByteOffset == 0) {
 		ERRDRV("vbus channel not used, because devInfoByteOffset == 0");
-		goto Away;
+		goto away;
 	}
 	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
-		ERRDRV("%s chan write of devInfo to offset=%d", __func__,
+		ERRDRV("%s chan write of dev_info to offset=%d", __func__,
 		       off);
-		goto Away;
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
@@ -1196,37 +1213,37 @@ Away:
  * instance.
  */
 static void
-fix_vbus_devInfo(struct visor_device *visordev)
+fix_vbus_dev_info(struct visor_device *visordev)
 {
 	int i;
-	VISORCHIPSET_BUS_INFO busInfo;
+	VISORCHIPSET_BUS_INFO bus_info;
 	struct visorbus_devdata *devdata = NULL;
 	struct visor_driver *visordrv;
-	int busNo = visordev->chipset_busNo;
-	int devNo = visordev->chipset_devNo;
-	struct ultra_vbus_deviceinfo devInfo;
-	const char *chanTypeName = NULL;
+	int bus_no = visordev->chipset_bus_no;
+	int dev_no = visordev->chipset_dev_no;
+	struct ultra_vbus_deviceinfo dev_info;
+	const char *chan_type_name = NULL;
 
 	if (visordev->device.driver == NULL) {
-		ERRDRV("%s no device driver for busNo=%d devNo=%d",
-		       __func__, busNo, devNo);
-		goto Away;
+		ERRDRV("%s no device driver for bus_no=%d dev_no=%d",
+		       __func__, bus_no, dev_no);
+		goto away;
 	}
 	visordrv = to_visor_driver(visordev->device.driver);
-	if (!visorchipset_get_bus_info(busNo, &busInfo)) {
-		ERRDRV("%s visorchipset_get_bus_info for busNo=%d failed",
-		       __func__, busNo);
-		goto Away;
+	if (!visorchipset_get_bus_info(bus_no, &bus_info)) {
+		ERRDRV("%s visorchipset_get_bus_info for bus_no=%d failed",
+		       __func__, bus_no);
+		goto away;
 	}
-	devdata = (struct visorbus_devdata *) (busInfo.bus_driver_context);
+	devdata = (struct visorbus_devdata *)(bus_info.bus_driver_context);
 	if (!devdata) {
-		ERRDRV("%s busInfo.bus_driver_context is NULL for busNo=%d",
-		       __func__, busNo);
-		goto Away;
+		ERRDRV("%s bus_info.bus_driver_context is NULL for bus_no=%d",
+		       __func__, bus_no);
+		goto away;
 	}
 	if (!devdata->vbus_valid) {
 		/* this error would have been blabbered earlier */
-		goto Away;
+		goto away;
 	}
 
 	/* Within the list of device types (by GUID) that the driver
@@ -1237,25 +1254,26 @@ fix_vbus_devInfo(struct visor_device *visordev)
 	for (i = 0; visordrv->channel_types[i].name != NULL; i++) {
 		if (STRUCTSEQUAL(visordrv->channel_types[i].guid,
 				 visordev->channel_type_guid)) {
-			chanTypeName = visordrv->channel_types[i].name;
+			chan_type_name = visordrv->channel_types[i].name;
 			break;
 		}
 	}
 
-	bus_device_info_init(&devInfo, chanTypeName,
-			   visordrv->name, visordrv->version, visordrv->vertag);
-	write_vbus_devInfo(devdata->chan,
-			   &devdata->vbus_hdrInfo, &devInfo, devNo);
+	bus_device_info_init(&dev_info, chan_type_name,
+			     visordrv->name, visordrv->version,
+			     visordrv->vertag);
+	write_vbus_dev_info(devdata->chan,
+			    &devdata->vbus_hdr_info, &dev_info, dev_no);
 
 	/* Re-write bus+chipset info, because it is possible that this
 	* was previously written by our evil counterpart, virtpci.
 	*/
-	write_vbus_chpInfo(devdata->chan, &devdata->vbus_hdrInfo,
-			   &Chipset_DriverInfo);
-	write_vbus_busInfo(devdata->chan, &devdata->vbus_hdrInfo,
-			   &ClientBus_DriverInfo);
+	write_vbus_chp_info(devdata->chan, &devdata->vbus_hdr_info,
+			    &chipset_driverinfo);
+	write_vbus_bus_info(devdata->chan, &devdata->vbus_hdr_info,
+			    &clientbus_driverinfo);
 
-Away:
+away:
 	return;
 }
 
@@ -1267,16 +1285,16 @@ create_bus_instance(int id)
 	struct visorbus_devdata *rc = NULL;
 	struct visorbus_devdata *devdata = NULL;
 	struct device *dev;
-	VISORCHIPSET_BUS_INFO busInfo;
+	VISORCHIPSET_BUS_INFO bus_info;
 	char s[99];
 
 	POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC, POSTCODE_SEVERITY_INFO);
-	dev = kmalloc(sizeof(struct device), GFP_KERNEL|__GFP_NORETRY);
+	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
 		ERRDRV("allocation of device for bus #%d failed", id);
 		POSTCODE_LINUX_2(MALLOC_FAILURE_PC, POSTCODE_SEVERITY_ERR);
 		rc = NULL;
-		goto Away;
+		goto away;
 	}
 	memset(dev, 0, sizeof(struct device));
 	dev_set_name(dev, "visorbus%d", id);
@@ -1286,74 +1304,75 @@ create_bus_instance(int id)
 		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, id,
 				 POSTCODE_SEVERITY_ERR);
 		rc = NULL;
-		goto Away;
+		goto away;
 	}
 	INFODEV(dev_name(dev), "bus device created");
 
-	devdata = kmalloc(sizeof(struct visorbus_devdata),
-			  GFP_KERNEL|__GFP_NORETRY);
+	devdata = kmalloc(sizeof(*devdata), GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
 		ERRDEV(dev_name(dev), "allocation of visorbus_devdata failed");
 		POSTCODE_LINUX_2(MALLOC_FAILURE_PC, POSTCODE_SEVERITY_ERR);
 		rc = NULL;
-		goto Away;
+		goto away;
 	}
 	memset(devdata, 0, sizeof(struct visorbus_devdata));
 	devdata->devno = id;
 	devdata->dev = dev;
-	if ((visorchipset_get_bus_info(id, &busInfo)) &&
-	    (busInfo.chanInfo.channelAddr > 0) &&
-	    (busInfo.chanInfo.nChannelBytes > 0)) {
-		HOSTADDRESS channelAddr = busInfo.chanInfo.channelAddr;
-		ulong nChannelBytes = (ulong) busInfo.chanInfo.nChannelBytes;
-		uuid_le channelTypeGuid = busInfo.chanInfo.channelTypeGuid;
+	if ((visorchipset_get_bus_info(id, &bus_info)) &&
+	    (bus_info.chanInfo.channelAddr > 0) &&
+	    (bus_info.chanInfo.nChannelBytes > 0)) {
+		HOSTADDRESS channelAddr = bus_info.chanInfo.channelAddr;
+		ulong nChannelBytes = (ulong)bus_info.chanInfo.nChannelBytes;
+		uuid_le channel_type_guid = bus_info.chanInfo.channelTypeGuid;
 
 		devdata->chan = visorchannel_create(channelAddr,
 						    nChannelBytes,
-						    channelTypeGuid);
+						    channel_type_guid);
 		if (devdata->chan == NULL) {
 			ERRDRV("bus channel addr = 0x%-16.16llx, size = %llu",
-			       (unsigned long long) channelAddr,
-			       (unsigned long long) nChannelBytes);
+			       (unsigned long long)channelAddr,
+			       (unsigned long long)nChannelBytes);
 			ERRDRV("visorchannel_create failed");
 			POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, channelAddr,
 					 POSTCODE_SEVERITY_ERR);
 		} else {
-			if (busInfo.flags.server) {
+			if (bus_info.flags.server) {
 				INFODRV("Bus channel %s connected (server, addr=0x%-16.16llx, size=%llu)",
 					visorchannel_id(devdata->chan, s),
-					(unsigned long long) channelAddr,
-					(unsigned long long) nChannelBytes);
-				initVbusChannel(devdata->chan);
+					(unsigned long long)channelAddr,
+					(unsigned long long)nChannelBytes);
+				init_vbus_channel(devdata->chan);
 			} else {
 				INFODRV("Bus channel %s connected (client, addr=0x%-16.16llx, size=%llu)",
 					visorchannel_id(devdata->chan, s),
-					(unsigned long long) channelAddr,
-					(unsigned long long) nChannelBytes);
-				if (get_vbus_headerInfo(devdata->chan,
-						&devdata->vbus_hdrInfo) >= 0) {
+					(unsigned long long)channelAddr,
+					(unsigned long long)nChannelBytes);
+				if (get_vbus_header_info(devdata->chan,
+							 &devdata->
+							 vbus_hdr_info) >= 0) {
 					devdata->vbus_valid = TRUE;
-					write_vbus_chpInfo(devdata->chan,
-						&devdata->
-						vbus_hdrInfo,
-						&Chipset_DriverInfo);
-					write_vbus_busInfo(devdata->chan,
-						&devdata->
-						vbus_hdrInfo,
-						&ClientBus_DriverInfo);
+					write_vbus_chp_info(devdata->chan,
+							    &devdata->
+							    vbus_hdr_info,
+							    &chipset_driverinfo
+							    );
+					write_vbus_bus_info(devdata->chan,
+							&devdata->
+							vbus_hdr_info,
+							&clientbus_driverinfo
+							);
 				}
 			}
-
 		}
 	}
 	register_businst_attributes(devdata);
-	BusCount++;
-	list_add_tail(&devdata->list_all, &List_all_bus_instances);
+	bus_count++;
+	list_add_tail(&devdata->list_all, &list_all_bus_instances);
 	if (id == 0)
-			Devdata = devdata;	/* for testing ONLY */
+			devdata = devdata;	/* for testing ONLY */
 	dev_set_drvdata(dev, devdata);
 	rc = devdata;
-Away:
+away:
 	return rc;
 }
 
@@ -1371,7 +1390,7 @@ remove_bus_instance(struct visorbus_devdata *devdata)
 	 */
 	INFODRV("removing bus instance");
 	unregister_businst_attributes(devdata);
-	BusCount--;
+	bus_count--;
 	if (devdata->chan) {
 		visorchannel_destroy(devdata->chan);
 		devdata->chan = NULL;
@@ -1381,39 +1400,39 @@ remove_bus_instance(struct visorbus_devdata *devdata)
 }
 
 /** Create and register the one-and-only one instance of
- *  the visor bus type (Visorbus_type).
+ *  the visor bus type (visorbus_type).
  */
 static int
 create_bus_type(void)
 {
 	int rc = 0;
 
-	Visorbus_type.dev_attrs = visor_device_attrs;
-	rc = bus_register(&Visorbus_type);
+	visorbus_type.dev_attrs = visor_device_attrs;
+	rc = bus_register(&visorbus_type);
 	if (rc < 0) {
-		ERRDRV("bus_register(&Visorbus_type) failed: (status=%d)\n",
+		ERRDRV("bus_register(&visorbus_type) failed: (status=%d)\n",
 		       rc);
-		goto Away;
+		goto away;
 	}
 	rc = register_bustype_attributes();
 	if (rc < 0) {
 		ERRDRV("register_bustype_attributes() failed: (status=%d)\n",
 		       rc);
-		goto Away;
+		goto away;
 	}
 	INFODRV("bus type registered %s", VERSION);
 	rc = 0;
-Away:
+away:
 	return rc;
 }
 
-/** Remove the one-and-only one instance of the visor bus type (Visorbus_type).
+/** Remove the one-and-only one instance of the visor bus type (visorbus_type).
  */
 static void
 remove_bus_type(void)
 {
 	unregister_bustype_attributes();
-	bus_unregister(&Visorbus_type);
+	bus_unregister(&visorbus_type);
 	INFODRV("bus type unregistered %s", VERSION);
 }
 
@@ -1426,7 +1445,7 @@ remove_all_visor_devices(void)
 
 	INFODRV("removing all child devices:");
 
-	list_for_each_safe(listentry, listtmp, &List_all_device_instances) {
+	list_for_each_safe(listentry, listtmp, &list_all_device_instances) {
 		struct visor_device *dev = list_entry(listentry,
 						      struct visor_device,
 						      list_all);
@@ -1434,136 +1453,136 @@ remove_all_visor_devices(void)
 	}
 }
 
-static BOOL Entered_Testing_Mode = FALSE;
-static VISORCHIPSET_CHANNEL_INFO Test_Channel_Infos[MAXDEVICETEST];
-static ulong Test_BusNos[MAXDEVICETEST];
-static ulong Test_DevNos[MAXDEVICETEST];
+static BOOL entered_testing_mode = FALSE;
+static VISORCHIPSET_CHANNEL_INFO test_channel_infos[MAXDEVICETEST];
+static ulong test_bus_nos[MAXDEVICETEST];
+static ulong test_dev_nos[MAXDEVICETEST];
 
 static void
-chipset_bus_create(ulong busNo)
+chipset_bus_create(ulong bus_no)
 {
-	VISORCHIPSET_BUS_INFO busInfo;
+	VISORCHIPSET_BUS_INFO bus_info;
 	struct visorbus_devdata *devdata;
 	int rc = -1;
 
-	POSTCODE_LINUX_3(BUS_CREATE_ENTRY_PC, busNo, POSTCODE_SEVERITY_INFO);
-	if (!visorchipset_get_bus_info(busNo, &busInfo))
-		goto Away;
-	devdata = create_bus_instance(busNo);
+	POSTCODE_LINUX_3(BUS_CREATE_ENTRY_PC, bus_no, POSTCODE_SEVERITY_INFO);
+	if (!visorchipset_get_bus_info(bus_no, &bus_info))
+		goto away;
+	devdata = create_bus_instance(bus_no);
 	if (!devdata)
-		goto Away;
-	if (!visorchipset_set_bus_context(busNo, devdata))
-		goto Away;
-	POSTCODE_LINUX_3(BUS_CREATE_EXIT_PC, busNo, POSTCODE_SEVERITY_INFO);
+		goto away;
+	if (!visorchipset_set_bus_context(bus_no, devdata))
+		goto away;
+	POSTCODE_LINUX_3(BUS_CREATE_EXIT_PC, bus_no, POSTCODE_SEVERITY_INFO);
 	rc = 0;
-Away:
+away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu) failed", __func__, busNo);
-		POSTCODE_LINUX_3(BUS_CREATE_FAILURE_PC, busNo,
+		ERRDRV("%s(%lu) failed", __func__, bus_no);
+		POSTCODE_LINUX_3(BUS_CREATE_FAILURE_PC, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 		return;
 	}
-	INFODRV("%s(%lu) successful", __func__, busNo);
-	POSTCODE_LINUX_3(CHIPSET_INIT_SUCCESS_PC, busNo,
+	INFODRV("%s(%lu) successful", __func__, bus_no);
+	POSTCODE_LINUX_3(CHIPSET_INIT_SUCCESS_PC, bus_no,
 			 POSTCODE_SEVERITY_INFO);
-	if (Chipset_Responders.bus_create)
-		(*Chipset_Responders.bus_create) (busNo, rc);
+	if (chipset_responders.bus_create)
+		(*chipset_responders.bus_create) (bus_no, rc);
 }
 
 static void
-chipset_bus_destroy(ulong busNo)
+chipset_bus_destroy(ulong bus_no)
 {
-	VISORCHIPSET_BUS_INFO busInfo;
+	VISORCHIPSET_BUS_INFO bus_info;
 	struct visorbus_devdata *devdata;
 	int rc = -1;
 
-	if (!visorchipset_get_bus_info(busNo, &busInfo))
-		goto Away;
-	devdata = (struct visorbus_devdata *) (busInfo.bus_driver_context);
+	if (!visorchipset_get_bus_info(bus_no, &bus_info))
+		goto away;
+	devdata = (struct visorbus_devdata *)(bus_info.bus_driver_context);
 	if (!devdata)
-		goto Away;
+		goto away;
 	remove_bus_instance(devdata);
-	if (!visorchipset_set_bus_context(busNo, NULL))
-		goto Away;
+	if (!visorchipset_set_bus_context(bus_no, NULL))
+		goto away;
 	rc = 0;
-Away:
+away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu) failed", __func__, busNo);
+		ERRDRV("%s(%lu) failed", __func__, bus_no);
 		return;
 	}
-	INFODRV("%s(%lu) successful", __func__, busNo);
-	if (Chipset_Responders.bus_destroy)
-		(*Chipset_Responders.bus_destroy) (busNo, rc);
+	INFODRV("%s(%lu) successful", __func__, bus_no);
+	if (chipset_responders.bus_destroy)
+		(*chipset_responders.bus_destroy) (bus_no, rc);
 }
 
 static void
-chipset_device_create(ulong busNo, ulong devNo)
+chipset_device_create(ulong bus_no, ulong dev_no)
 {
-	VISORCHIPSET_DEVICE_INFO devInfo;
-	VISORCHIPSET_BUS_INFO busInfo;
+	VISORCHIPSET_DEVICE_INFO dev_info;
+	VISORCHIPSET_BUS_INFO bus_info;
 	struct visorbus_devdata *devdata = NULL;
 	int rc = -1;
 
-	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, devNo, busNo,
+	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, dev_no, bus_no,
 			 POSTCODE_SEVERITY_INFO);
 
-	if (Entered_Testing_Mode)
+	if (entered_testing_mode)
 		return;
-	if (!visorchipset_get_device_info(busNo, devNo, &devInfo))
-		goto Away;
-	if (!visorchipset_get_bus_info(busNo, &busInfo))
-		goto Away;
+	if (!visorchipset_get_device_info(bus_no, dev_no, &dev_info))
+		goto away;
+	if (!visorchipset_get_bus_info(bus_no, &bus_info))
+		goto away;
 	if (visorbus_devicetest)
-		if (TotalDevicesCreated < MAXDEVICETEST) {
-			Test_Channel_Infos[TotalDevicesCreated] =
-			    devInfo.chanInfo;
-			Test_BusNos[TotalDevicesCreated] = busNo;
-			Test_DevNos[TotalDevicesCreated] = devNo;
+		if (total_devices_created < MAXDEVICETEST) {
+			test_channel_infos[total_devices_created] =
+			    dev_info.chanInfo;
+			test_bus_nos[total_devices_created] = bus_no;
+			test_dev_nos[total_devices_created] = dev_no;
 		}
-	POSTCODE_LINUX_4(DEVICE_CREATE_EXIT_PC, devNo, busNo,
+	POSTCODE_LINUX_4(DEVICE_CREATE_EXIT_PC, dev_no, bus_no,
 			 POSTCODE_SEVERITY_INFO);
 	rc = 0;
-Away:
+away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu,%lu) failed", __func__, busNo, devNo);
-		POSTCODE_LINUX_4(DEVICE_CREATE_FAILURE_PC, devNo, busNo,
+		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
+		POSTCODE_LINUX_4(DEVICE_CREATE_FAILURE_PC, dev_no, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 		return;
 	}
-	INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
-	devdata = (struct visorbus_devdata *) (busInfo.bus_driver_context);
-	rc = create_visor_device(devdata, busNo, devNo,
-				 devInfo.chanInfo, busInfo.partitionHandle);
-	POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, devNo, busNo,
+	INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
+	devdata = (struct visorbus_devdata *)(bus_info.bus_driver_context);
+	rc = create_visor_device(devdata, bus_no, dev_no,
+				 dev_info.chanInfo, bus_info.partitionHandle);
+	POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, dev_no, bus_no,
 			 POSTCODE_SEVERITY_INFO);
 	if (rc < 0)
-		if (Chipset_Responders.device_create)
-			(*Chipset_Responders.device_create) (busNo, devNo, rc);
+		if (chipset_responders.device_create)
+			(*chipset_responders.device_create)(bus_no, dev_no, rc);
 }
 
 static void
-chipset_device_destroy(ulong busNo, ulong devNo)
+chipset_device_destroy(ulong bus_no, ulong dev_no)
 {
-	VISORCHIPSET_DEVICE_INFO devInfo;
+	VISORCHIPSET_DEVICE_INFO dev_info;
 	struct visor_device *dev;
 	int rc = -1;
 
-	if (Entered_Testing_Mode)
+	if (entered_testing_mode)
 		return;
-	if (!visorchipset_get_device_info(busNo, devNo, &devInfo))
-		goto Away;
-	dev = find_visor_device_by_channel(devInfo.chanInfo.channelAddr);
+	if (!visorchipset_get_device_info(bus_no, dev_no, &dev_info))
+		goto away;
+	dev = find_visor_device_by_channel(dev_info.chanInfo.channelAddr);
 	if (!dev)
-		goto Away;
+		goto away;
 	rc = 0;
-Away:
+away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu,%lu) failed", __func__, busNo, devNo);
+		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 		return;
 	}
-	INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
-	if (Chipset_Responders.device_destroy)
-		(*Chipset_Responders.device_destroy) (busNo, devNo, rc);
+	INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
+	if (chipset_responders.device_destroy)
+		(*chipset_responders.device_destroy) (bus_no, dev_no, rc);
 	remove_visor_device(dev);
 }
 
@@ -1582,7 +1601,7 @@ pause_state_change_complete(struct visor_device *dev, int status)
 	INFODEV(dev_name(&dev->device),
 		"transition running-->paused rc=%d", status);
 	dev->pausing = FALSE;
-	if (!Chipset_Responders.device_pause) {
+	if (!chipset_responders.device_pause) {
 		/* this can never happen! */
 		HUHDEV(dev_name(&dev->device), "no pause complete function");
 		return;
@@ -1590,8 +1609,8 @@ pause_state_change_complete(struct visor_device *dev, int status)
 	/* Notify the chipset driver that the pause is complete, which
 	* will presumably want to send some sort of response to the
 	* initiator. */
-	(*Chipset_Responders.device_pause) (dev->chipset_busNo,
-					    dev->chipset_devNo, status);
+	(*chipset_responders.device_pause) (dev->chipset_bus_no,
+					    dev->chipset_dev_no, status);
 }
 
 /* This is the callback function specified for a function driver, to
@@ -1609,7 +1628,7 @@ resume_state_change_complete(struct visor_device *dev, int status)
 	INFODEV(dev_name(&dev->device),
 		"transition paused-->running rc=%d", status);
 	dev->resuming = FALSE;
-	if (!Chipset_Responders.device_resume) {
+	if (!chipset_responders.device_resume) {
 		/* this can never happen! */
 		HUHDEV(dev_name(&dev->device), "no resume complete function");
 		return;
@@ -1617,8 +1636,8 @@ resume_state_change_complete(struct visor_device *dev, int status)
 	/* Notify the chipset driver that the resume is complete,
 	 * which will presumably want to send some sort of response to
 	 * the initiator. */
-	(*Chipset_Responders.device_resume) (dev->chipset_busNo,
-					     dev->chipset_devNo, status);
+	(*chipset_responders.device_resume) (dev->chipset_bus_no,
+					     dev->chipset_dev_no, status);
 }
 
 /* Tell the subordinate function driver for a specific device to pause
@@ -1626,39 +1645,39 @@ resume_state_change_complete(struct visor_device *dev, int status)
  * callback function.
  */
 static void
-initiate_chipset_device_pause_resume(ulong busNo, ulong devNo, BOOL is_pause)
+initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 {
-	VISORCHIPSET_DEVICE_INFO devInfo;
+	VISORCHIPSET_DEVICE_INFO dev_info;
 	struct visor_device *dev = NULL;
 	int rc = -1, x;
 	struct visor_driver *drv = NULL;
-	void (*notify_func)(ulong busNo, ulong devNo, int response) = NULL;
+	void (*notify_func)(ulong bus_no, ulong dev_no, int response) = NULL;
 
 	if (is_pause)
-		notify_func = Chipset_Responders.device_pause;
+		notify_func = chipset_responders.device_pause;
 	else
-		notify_func = Chipset_Responders.device_resume;
+		notify_func = chipset_responders.device_resume;
 	if (!notify_func) {
-		HUHDRV("no Chipset_Responders notify function (this is WAY serious)");
-		goto Away;
+		HUHDRV("no chipset_responders notify function (this is WAY serious)");
+		goto away;
 	}
-	if (!visorchipset_get_device_info(busNo, devNo, &devInfo)) {
+	if (!visorchipset_get_device_info(bus_no, dev_no, &dev_info)) {
 		ERRDRV("visorchipset_get_device_info_failed");
-		goto Away;
+		goto away;
 	}
-	dev = find_visor_device_by_channel(devInfo.chanInfo.channelAddr);
+	dev = find_visor_device_by_channel(dev_info.chanInfo.channelAddr);
 	if (!dev) {
 		ERRDRV("device not found");
-		goto Away;
+		goto away;
 	}
 	drv = to_visor_driver(dev->device.driver);
 	if (!drv) {
 		ERRDEV(dev_name(&dev->device), "driver not found");
-		goto Away;
+		goto away;
 	}
 	if (dev->pausing || dev->resuming) {
 		ERRDEV(dev_name(&dev->device), "already pausing or resuming");
-		goto Away;
+		goto away;
 	}
 	/* Note that even though both drv->pause() and drv->resume
 	 * specify a callback function, it is NOT necessary for us to
@@ -1669,8 +1688,9 @@ initiate_chipset_device_pause_resume(ulong busNo, ulong devNo, BOOL is_pause)
 	 */
 	if (is_pause) {
 		if (!drv->pause) {
-			ERRDEV(dev_name(&dev->device), "visorbus cannot pause device, because function driver does not support pause");
-			goto Away;
+			ERRDEV(dev_name(&dev->device),
+			       "visorbus cannot pause device, because function driver does not support pause");
+			goto away;
 		}
 		dev->pausing = TRUE;
 		x = drv->pause(dev, pause_state_change_complete);
@@ -1680,11 +1700,11 @@ initiate_chipset_device_pause_resume(ulong busNo, ulong devNo, BOOL is_pause)
 		 * resume...  This hack would fail to work should we
 		 * ever have a bus that contains NO devices, since we
 		 * would never even get here in that case. */
-		fix_vbus_devInfo(dev);
+		fix_vbus_dev_info(dev);
 		if (!drv->resume) {
 			ERRDEV(dev_name(&dev->device),
 			       "visorbus cannot resume device, because function driver does not support resume");
-			goto Away;
+			goto away;
 		}
 		dev->resuming = TRUE;
 		x = drv->resume(dev, resume_state_change_complete);
@@ -1696,10 +1716,10 @@ initiate_chipset_device_pause_resume(ulong busNo, ulong devNo, BOOL is_pause)
 			dev->resuming = FALSE;
 		ERRDEV(dev_name(&dev->device),
 		       "function driver pause/resume failed with rc=%d", x);
-		goto Away;
+		goto away;
 	}
 	rc = 0;
-Away:
+away:
 	if (rc < 0) {
 		if (dev)
 			ERRDEV(dev_name(&dev->device), "%s state change failed",
@@ -1707,22 +1727,22 @@ Away:
 		else
 			ERRDRV("%s(%s,%lu,%lu) failed",
 			       __func__, (is_pause) ? "pause" : "resume",
-			       busNo, devNo);
+			       bus_no, dev_no);
 		if (notify_func)
-			(*notify_func) (busNo, devNo, rc);
+			(*notify_func) (bus_no, dev_no, rc);
 	}
 }
 
 static void
-chipset_device_pause(ulong busNo, ulong devNo)
+chipset_device_pause(ulong bus_no, ulong dev_no)
 {
-	initiate_chipset_device_pause_resume(busNo, devNo, TRUE);
+	initiate_chipset_device_pause_resume(bus_no, dev_no, TRUE);
 }
 
 static void
-chipset_device_resume(ulong busNo, ulong devNo)
+chipset_device_resume(ulong bus_no, ulong dev_no)
 {
-	initiate_chipset_device_pause_resume(busNo, devNo, FALSE);
+	initiate_chipset_device_pause_resume(bus_no, dev_no, FALSE);
 }
 
 struct channel_size_info {
@@ -1732,16 +1752,17 @@ struct channel_size_info {
 };
 
 static int
-find_channel_size(struct device_driver *xdrv, void *xInfo)
+find_channel_size(struct device_driver *xdrv, void *xinfo)
 {
-	struct channel_size_info *info = (struct channel_size_info *) (xInfo);
+	struct channel_size_info *info = (struct channel_size_info *)(xinfo);
 	int i = 0;
 	struct visor_driver *drv = to_visor_driver(xdrv);
 
 	if (drv->channel_types == NULL)
 		return 0;
-	for (i = 0; (uuid_le_cmp(drv->channel_types[i].guid, NULL_UUID_LE) != 0)
-			|| (drv->channel_types[i].name == NULL); i++)
+	for (i = 0;
+	     (uuid_le_cmp(drv->channel_types[i].guid, NULL_UUID_LE) != 0) ||
+	     (drv->channel_types[i].name == NULL); i++)
 		if (uuid_le_cmp(drv->channel_types[i].guid, info->guid) == 0) {
 			info->min_size = drv->channel_types[i].min_size;
 			info->max_size = drv->channel_types[i].max_size;
@@ -1750,20 +1771,20 @@ find_channel_size(struct device_driver *xdrv, void *xInfo)
 }
 
 static int
-chipset_get_channel_info(uuid_le typeGuid, ulong *minSize, ulong *maxSize)
+chipset_get_channel_info(uuid_le type_guid, ulong *min_size, ulong *max_size)
 {
 	struct channel_size_info info;
 	int res = 0;
 
 	memset(&info, 0, sizeof(info));
-	info.guid = typeGuid;
+	info.guid = type_guid;
 	res =
-	    bus_for_each_drv(&Visorbus_type, NULL, (void *) (&info),
+	    bus_for_each_drv(&visorbus_type, NULL, (void *)(&info),
 			     find_channel_size);
 	if (info.min_size == 0 && info.max_size == 0)
 		return -1;
-	*minSize = info.min_size;
-	*maxSize = info.max_size;
+	*min_size = info.min_size;
+	*max_size = info.max_size;
 	return 0;
 }
 
@@ -1782,27 +1803,27 @@ periodic_test_work(struct work_struct *work)
 	if (visorbus_devicetest && (current_interval > last_interval)) {
 		last_interval = current_interval;
 		INFODRV("devicetest interval #%llu",
-			(unsigned long long) current_interval);
+			(unsigned long long)current_interval);
 		if ((visorbus_devicetest > 0) &&
-		    (TotalDevicesCreated >= visorbus_devicetest)) {
+		    (total_devices_created >= visorbus_devicetest)) {
 			int i;
 
-			Entered_Testing_Mode = TRUE;
+			entered_testing_mode = TRUE;
 			if (create_phase) {
 				INFODRV("Adding devices for devicetest...");
 				for (i = 0; i < visorbus_devicetest; i++) {
 					create_visor_device
-					    (Devdata,
-					     Test_BusNos[i],
-					     Test_DevNos[i],
-					     Test_Channel_Infos[i], 0);
+					    (devdata,
+					     test_bus_nos[i],
+					     test_dev_nos[i],
+					     test_channel_infos[i], 0);
 				}
 				create_phase = FALSE;
 			} else {
 				INFODRV("Removing devices for devicetest...");
 				for (i = 0; i < visorbus_devicetest; i++) {
 					dev = find_visor_device_by_channel
-					    (Test_Channel_Infos[i].channelAddr);
+					    (test_channel_infos[i].channelAddr);
 					if (dev != NULL)
 						remove_visor_device(dev);
 				}
@@ -1811,16 +1832,16 @@ periodic_test_work(struct work_struct *work)
 		}
 	}
 
-	if (visorbus_serialloopbacktest && (!Entered_Testing_Mode)) {
-		Entered_Testing_Mode = TRUE;
+	if (visorbus_serialloopbacktest && (!entered_testing_mode)) {
+		entered_testing_mode = TRUE;
 		memset(&chanInfo, 0, sizeof(chanInfo));
 		chanInfo.channelAddr = SERIALLOOPBACKCHANADDR;
-		create_visor_device(Devdata, 0, 0, chanInfo, 0);
-		create_visor_device(Devdata, 0, 0, chanInfo, 0);
+		create_visor_device(devdata, 0, 0, chanInfo, 0);
+		create_visor_device(devdata, 0, 0, chanInfo, 0);
 	}
 
-	if (queue_delayed_work(Periodic_test_workqueue,
-			       &Periodic_test_work, POLLJIFFIES_TESTWORK) < 0)
+	if (queue_delayed_work(periodic_test_workqueue,
+			       &periodic_work, POLLJIFFIES_TESTWORK) < 0)
 		ERRDRV("queue_delayed_work failed!");
 }
 
@@ -1832,9 +1853,9 @@ visorbus_init(void)
 	POSTCODE_LINUX_3(DRIVER_ENTRY_PC, rc, POSTCODE_SEVERITY_INFO);
 	INFODRV("bus driver version %s loaded", VERSION);
 
-	bus_device_info_init(&ClientBus_DriverInfo,
-			   "clientbus", MYDRVNAME,
-			   VERSION, NULL);
+	bus_device_info_init(&clientbus_driverinfo,
+			     "clientbus", MYDRVNAME,
+			     VERSION, NULL);
 
 	/* process module options */
 
@@ -1855,52 +1876,52 @@ visorbus_init(void)
 	if (rc < 0) {
 		ERRDRV("create_bus_type(): error (status=%d)\n", rc);
 		POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC, DIAG_SEVERITY_ERR);
-		goto Away;
+		goto away;
 	}
 
 	if (visorbus_serialloopbacktest || visorbus_devicetest) {
-		INIT_DELAYED_WORK(&Periodic_test_work, periodic_test_work);
-		Periodic_test_workqueue =
+		INIT_DELAYED_WORK(&periodic_work, periodic_test_work);
+		periodic_test_workqueue =
 		    create_singlethread_workqueue("visorbus_test");
-		if (Periodic_test_workqueue == NULL) {
+		if (periodic_test_workqueue == NULL) {
 			ERRDRV("cannot create test workqueue: error (status=%d)\n",
 			       -ENOMEM);
 			POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC,
 					 DIAG_SEVERITY_ERR);
 			rc = -ENOMEM;
-			goto Away;
+			goto away;
 		}
 
-		rc = queue_delayed_work(Periodic_test_workqueue,
-					&Periodic_test_work,
+		rc = queue_delayed_work(periodic_test_workqueue,
+					&periodic_work,
 					POLLJIFFIES_TESTWORK);
 		if (rc < 0) {
-			ERRDRV("queue_delayed_work(Periodic_test_workqueue, &Periodic_test_work, POLLJIFFIES_TESTWORK): error (status=%d)\n", rc);
+			ERRDRV("queue_delayed_work(periodic_test_workqueue, &periodic_work, POLLJIFFIES_TESTWORK): error (status=%d)\n", rc);
 			POSTCODE_LINUX_2(QUEUE_DELAYED_WORK_PC,
 					 DIAG_SEVERITY_ERR);
-			goto Away;
+			goto away;
 		}
 	}
 
-	Periodic_dev_workqueue = create_singlethread_workqueue("visorbus_dev");
-	if (Periodic_dev_workqueue == NULL) {
+	periodic_dev_workqueue = create_singlethread_workqueue("visorbus_dev");
+	if (periodic_dev_workqueue == NULL) {
 		ERRDRV("cannot create dev workqueue: error (status=%d)\n",
 		       -ENOMEM);
 		POSTCODE_LINUX_2(CREATE_WORKQUEUE_PC, DIAG_SEVERITY_ERR);
 		rc = -ENOMEM;
-		goto Away;
+		goto away;
 	}
 
 	/* This enables us to receive notifications when devices appear for
 	 * which this service partition is to be a server for.
 	 */
-	visorchipset_register_busdev_server(&Chipset_Notifiers,
-					    &Chipset_Responders,
-					    &Chipset_DriverInfo);
+	visorchipset_register_busdev_server(&chipset_notifiers,
+					    &chipset_responders,
+					    &chipset_driverinfo);
 
 	rc = 0;
 
-Away:
+away:
 	if (rc) {
 		ERRDRV("visorbus_init failed");
 		POSTCODE_LINUX_3(CHIPSET_INIT_FAILURE_PC, rc,
@@ -1917,18 +1938,18 @@ visorbus_exit(void)
 	visorchipset_register_busdev_server(NULL, NULL, NULL);
 	remove_all_visor_devices();
 
-	flush_workqueue(Periodic_dev_workqueue); /* better not be any work! */
-	destroy_workqueue(Periodic_dev_workqueue);
-	Periodic_dev_workqueue = NULL;
+	flush_workqueue(periodic_dev_workqueue); /* better not be any work! */
+	destroy_workqueue(periodic_dev_workqueue);
+	periodic_dev_workqueue = NULL;
 
-	if (Periodic_test_workqueue) {
-		cancel_delayed_work(&Periodic_test_work);
-		flush_workqueue(Periodic_test_workqueue);
-		destroy_workqueue(Periodic_test_workqueue);
-		Periodic_test_workqueue = NULL;
+	if (periodic_test_workqueue) {
+		cancel_delayed_work(&periodic_work);
+		flush_workqueue(periodic_test_workqueue);
+		destroy_workqueue(periodic_test_workqueue);
+		periodic_test_workqueue = NULL;
 	}
 
-	list_for_each_safe(listentry, listtmp, &List_all_bus_instances) {
+	list_for_each_safe(listentry, listtmp, &list_all_bus_instances) {
 		struct visorbus_devdata *devdata = list_entry(listentry,
 							      struct
 							      visorbus_devdata,
@@ -1967,7 +1988,6 @@ module_param_named(serialloopbacktest, visorbus_serialloopbacktest,
 MODULE_PARM_DESC(visorbus_serialloopbacktest,
 		 "non-0 to just create 2 serial devices on the same channel");
 int visorbus_serialloopbacktest = 0;
-
 
 module_init(visorbus_init);
 module_exit(visorbus_exit);
