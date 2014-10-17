@@ -135,13 +135,13 @@ struct DEVDATA_COUNTERS {
 /** These are all the devdata properties we maintain for each device.
  *  They will all be reported under /sys/bus/visorbus/devices/<devicename>.
  */
-enum {
+enum visordiag_devdata_properties {
 	prop_open_file_count,
 	/* Add items above, but don't forget to modify
 	 * register_devdata_attributes whenever you do...
 	 */
 	prop_DEVDATAMAX
-} DEVDATA_PROPERTIES;
+};
 
 /** This is the private data that we store for each device.
  *  A pointer to this struct is kept in each "struct device", and can be
