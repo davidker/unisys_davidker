@@ -88,23 +88,23 @@ static const struct file_operations visorserial_serial_fops = {
 /** These are all the counters we maintain for each device.
  *  They will all be reported under /sys/bus/visorbus/devices/<devicename>.
  */
-struct {
+struct devdata_counters {
 	u64 host_bytes_in;   /**< bytes we have input from the host */
 	u64 host_bytes_out;  /**< bytes we have output to the host */
 	u64 umode_bytes_in;  /**< bytes we have input from user mode */
 	u64 umode_bytes_out; /**< bytes we have output to user mode */
-} DEVDATA_COUNTERS;
+};
 
 /** These are all the devdata properties we maintain for each device.
  *  They will all be reported under /sys/bus/visorbus/devices/<devicename>.
  */
-enum {
+enum visorserial_devdata_properties {
 	prop_openfile_count,
 	/* Add items above, but don't forget to modify
 	 * register_devdata_attributes whenever you do...
 	 */
 	prop_DEVDATAMAX
-} DEVDATA_PROPERTIES;
+};
 
 /** This is the private data that we store for each device.
  *  A pointer to this struct is kept in each "struct device", and can be
@@ -125,14 +125,14 @@ struct visorserial_devdata {
 	rwlock_t lock_files;
 	/** lock for open_file_count */
 	struct rw_semaphore lock_open_file_count;
-	DEVDATA_COUNTERS counter;
+	struct devdata_counters counter;
 	struct device_attribute devdata_property[prop_DEVDATAMAX];
 	struct kref kref;
 	struct cdev cdev_serial;
 	struct easyproc_device_info procinfo;
 	int xmitqueue;
 	int recvqueue;
-	LINUXSERIAL *linuxserial;
+	struct linux_serial *linuxserial;
 };
 
 /** List of all visorserial_devdata structs, linked via the list_all member */
@@ -549,7 +549,7 @@ create_visor_device(u64 addr)
 	}
 	INFODRV("Channel %s discovered and connected",
 		visorchannel_id(visorchannel, s));
-	dev = kmalloc(sizeof(*devdata), GFP_KERNEL|__GFP_NORETRY);
+	dev = kmalloc(sizeof(dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
 		ERRDRV("failed to allocate visor_device\n");
 		goto Away;

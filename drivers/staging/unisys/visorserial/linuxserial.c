@@ -37,7 +37,7 @@
 #define UART_NR                 1  /* max number of devices */
 #define DELAY_TIME         (HZ/10) /* check for xmit chars 10 times per sec */
 
-struct linux_serial_tag {
+struct linux_serial {
 	int devno;
 	struct uart_port port;
 	void (*transmit_char)(void *, u8);
@@ -153,7 +153,7 @@ lxser_tx_chars(struct uart_port *port, void *context,
  *  character has come in on the "wire".
  */
 void
-linuxserial_rx_char(LINUXSERIAL *ls, u8 c)
+linuxserial_rx_char(struct linux_serial *ls, u8 c)
 {
 	struct uart_port *port;
 	struct tty_struct *tty;
@@ -191,7 +191,7 @@ lxser_get_mctrl(struct uart_port *port)
 static void
 lxser_periodic_work(void *xls)
 {
-	LINUXSERIAL *ls = (LINUXSERIAL *)(xls);
+	struct linux_serial *ls = (struct linux_serial *)(xls);
 
 	lxser_tx_chars(&ls->port, ls->context, ls->transmit_char);
 	visor_periodic_work_nextperiod(ls->periodic_work);
@@ -203,7 +203,7 @@ lxser_startup(struct uart_port *port)
 	/* this is the first time this port is opened do any hardware
 	 * initialization needed here
 	 */
-	LINUXSERIAL *ls = (__force LINUXSERIAL *)(port->membase);
+	struct linux_serial *ls = (__force struct linux_serial *)(port->membase);
 
 	INFODRV("%s", __func__);
 	ls->periodic_work = visor_periodic_work_create(DELAY_TIME,
@@ -224,7 +224,7 @@ lxser_shutdown(struct uart_port *port)
 {
 	/* The port is being closed by the last user.  Do any hardware
 	* specific stuff here */
-	LINUXSERIAL *ls = (__force LINUXSERIAL *)(port->membase);
+	struct linux_serial *ls = (__force struct linux_serial *)(port->membase);
 
 	INFODRV("%s", __func__);
 	if (ls->periodic_work != NULL) {
@@ -280,12 +280,12 @@ struct uart_driver visorserial_lxser_reg = {
 	.nr = UART_NR,
 };
 
-LINUXSERIAL *
+struct linux_serial *
 linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 {
 	int result;
-	LINUXSERIAL *rc = NULL;
-	LINUXSERIAL *ls = NULL;
+	struct linux_serial *rc = NULL;
+	struct linux_serial *ls = NULL;
 
 	INFODRV("%s", __func__);
 	if (devno >= UART_NR) {
@@ -294,13 +294,13 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 		rc = NULL;
 		goto Away;
 	}
-	ls = kmalloc(sizeof(LINUXSERIAL), GFP_KERNEL|__GFP_NORETRY);
+	ls = kmalloc(sizeof(struct linux_serial), GFP_KERNEL|__GFP_NORETRY);
 	if (ls == NULL) {
 		ERRDEVX(devno, "%s allocation failed ", __func__);
 		rc = NULL;
 		goto Away;
 	}
-	memset(ls, '\0', sizeof(LINUXSERIAL));
+	memset(ls, '\0', sizeof(struct linux_serial));
 	ls->devno = devno;
 	ls->context = context;
 	ls->transmit_char = transmit_char;
@@ -358,7 +358,7 @@ Away:
 }
 
 void
-linuxserial_destroy(LINUXSERIAL *ls)
+linuxserial_destroy(struct linux_serial *ls)
 {
 	INFODEVX(ls->devno, "%s", __func__);
 	if (ls == NULL)

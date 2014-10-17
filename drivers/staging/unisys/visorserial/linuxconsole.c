@@ -37,12 +37,12 @@ static void *console_context;
 static char buffer[BUFFER_SIZE + 1];
 static int buffer_ix;
 static void (*transmit_char)(void *, u8);
-static DECLARE_RWSEM(console_lock);
+static DECLARE_RWSEM(spar_console_lock);
 
 void
 lxcon_console_online(void *context, void (*transmit_char) (void *, u8))
 {
-	down_write(&console_lock);
+	down_write(&spar_console_lock);
 	if (context && transmit_char) {
 		int i = 0;
 
@@ -51,16 +51,16 @@ lxcon_console_online(void *context, void (*transmit_char) (void *, u8))
 		for (i = 0; i < buffer_ix; i++)
 			(*transmit_char) (console_context, buffer[i]);
 	}
-	up_write(&console_lock);
+	up_write(&spar_console_lock);
 }
 
 void
 lxcon_console_offline(void *context)
 {
-	down_read(&console_lock);
+	down_read(&spar_console_lock);
 	console_context = NULL;
 	transmit_char = NULL;
-	up_read(&console_lock);
+	up_read(&spar_console_lock);
 }
 
 char *
@@ -78,7 +78,7 @@ lxcon_console_write(struct console *co, const char *s, unsigned count)
 
 	if (count == 0)
 		return;
-	down_write(&console_lock);
+	down_write(&spar_console_lock);
 	visorserial_console_write_bytes += count;
 	if (console_context == NULL) {
 		if (buffer_ix + count <= BUFFER_SIZE) {
@@ -91,7 +91,7 @@ lxcon_console_write(struct console *co, const char *s, unsigned count)
 		for (i = 0; i < count; i++)
 			(*transmit_char) (console_context, s[i]);
 	}
-	up_write(&console_lock);
+	up_write(&spar_console_lock);
 }
 
 static int __init
