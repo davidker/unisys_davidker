@@ -1,6 +1,6 @@
 /* linuxconsole.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (c) 2010 - 2014 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,41 +33,41 @@
 ulong visorserial_console_write_bytes = 0;
 ulong visorserial_console_dropped_bytes = 0;
 
-static void *Console_context;
-static char Buffer[BUFFER_SIZE + 1];
-static int Buffer_ix;
-static void (*Transmit_char)(void *, u8);
-static DECLARE_RWSEM(Console_lock);
+static void *console_context;
+static char buffer[BUFFER_SIZE + 1];
+static int buffer_ix;
+static void (*transmit_char)(void *, u8);
+static DECLARE_RWSEM(console_lock);
 
 void
 lxcon_console_online(void *context, void (*transmit_char) (void *, u8))
 {
-	down_write(&Console_lock);
+	down_write(&console_lock);
 	if (context && transmit_char) {
 		int i = 0;
 
-		Console_context = context;
-		Transmit_char = transmit_char;
-		for (i = 0; i < Buffer_ix; i++)
-			(*Transmit_char) (Console_context, Buffer[i]);
+		console_context = context;
+		transmit_char = transmit_char;
+		for (i = 0; i < buffer_ix; i++)
+			(*transmit_char) (console_context, buffer[i]);
 	}
-	up_write(&Console_lock);
+	up_write(&console_lock);
 }
 
 void
 lxcon_console_offline(void *context)
 {
-	down_read(&Console_lock);
-	Console_context = NULL;
-	Transmit_char = NULL;
-	up_read(&Console_lock);
+	down_read(&console_lock);
+	console_context = NULL;
+	transmit_char = NULL;
+	up_read(&console_lock);
 }
 
 char *
 lxcon_get_early_buffer(void)
 {
-	Buffer[Buffer_ix] = '\0';
-	return Buffer;
+	buffer[buffer_ix] = '\0';
+	return buffer;
 }
 
 #ifndef MODULE			/* needed because of omission in linux/init.h */
@@ -78,19 +78,20 @@ lxcon_console_write(struct console *co, const char *s, unsigned count)
 
 	if (count == 0)
 		return;
-	down_write(&Console_lock);
+	down_write(&console_lock);
 	visorserial_console_write_bytes += count;
-	if (Console_context == NULL) {
-		if (Buffer_ix + count <= BUFFER_SIZE) {
-			memcpy(Buffer + Buffer_ix, s, count);
-			Buffer_ix += count;
-		} else
+	if (console_context == NULL) {
+		if (buffer_ix + count <= BUFFER_SIZE) {
+			memcpy(buffer + buffer_ix, s, count);
+			buffer_ix += count;
+		} else {
 			visorserial_console_dropped_bytes += count;
+	    }
 	} else {
 		for (i = 0; i < count; i++)
-			(*Transmit_char) (Console_context, s[i]);
+			(*transmit_char) (console_context, s[i]);
 	}
-	up_write(&Console_lock);
+	up_write(&console_lock);
 }
 
 static int __init
@@ -104,7 +105,7 @@ lxcon_console_setup(struct console *co, char *options)
 		if (visorserial_channeladdress != 0)
 			goto Away; /* channeladdress supplied on module load */
 		pr_info("%s - channel address must be specified!\n",
-		       __func__);
+			__func__);
 		rc = -ENODEV;
 		goto Away;
 	}
@@ -118,7 +119,7 @@ lxcon_console_setup(struct console *co, char *options)
 		s++;
 	if (*s) {
 		pr_info("%s - extraneous console options ('%s')!\n",
-		       __func__, s);
+			__func__, s);
 		rc = -ENODEV;
 		goto Away;
 	}
@@ -127,7 +128,7 @@ lxcon_console_setup(struct console *co, char *options)
 Away:
 	if (rc >= 0) {
 		pr_info("%s - using %s console @ 0x%lx\n",
-		       __func__, CONSOLE_TYPE_STRING,
+			__func__, CONSOLE_TYPE_STRING,
 		       visorserial_channeladdress);
 	} else {
 		pr_info("%s console will NOT be used\n", CONSOLE_TYPE_STRING);
@@ -154,8 +155,8 @@ static int __init
 lxcon_console_init(void)
 {
 	pr_info("%s registering %s console\n",
-	       __func__, CONSOLE_TYPE_STRING);
-	memset(Buffer, 0, sizeof(Buffer));
+		__func__, CONSOLE_TYPE_STRING);
+	memset(buffer, 0, sizeof(buffer));
 	register_console(&lxcon_console);
 	return 0;
 }
