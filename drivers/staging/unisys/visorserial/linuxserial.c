@@ -1,6 +1,6 @@
 /* linuxserial.c
  *
- * Copyright © 2010 - 2013 UNISYS CORPORATION
+ * Copyright (c) 2010 - 2014 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,7 @@
 #define UART_NR                 1  /* max number of devices */
 #define DELAY_TIME         (HZ/10) /* check for xmit chars 10 times per sec */
 
-struct LINUXSERIAL_Tag {
+struct linux_serial_tag {
 	int devno;
 	struct uart_port port;
 	void (*transmit_char)(void *, u8);
@@ -45,9 +45,9 @@ struct LINUXSERIAL_Tag {
 	struct periodic_work *periodic_work;
 };
 
-static struct workqueue_struct *Workqueue;
-static BOOL Driver_Registered = FALSE;
-static int Registered_Ports;
+static struct workqueue_struct *workqueue;
+static BOOL driver_registered = FALSE;
+static int registered_ports;
 
 /* Here are some "no-ops" */
 static void
@@ -191,7 +191,7 @@ lxser_get_mctrl(struct uart_port *port)
 static void
 lxser_periodic_work(void *xls)
 {
-	LINUXSERIAL *ls = (LINUXSERIAL *) (xls);
+	LINUXSERIAL *ls = (LINUXSERIAL *)(xls);
 
 	lxser_tx_chars(&ls->port, ls->context, ls->transmit_char);
 	visor_periodic_work_nextperiod(ls->periodic_work);
@@ -203,11 +203,11 @@ lxser_startup(struct uart_port *port)
 	/* this is the first time this port is opened do any hardware
 	 * initialization needed here
 	 */
-	LINUXSERIAL *ls = (__force LINUXSERIAL *) (port->membase);
+	LINUXSERIAL *ls = (__force LINUXSERIAL *)(port->membase);
 
 	INFODRV("%s", __func__);
 	ls->periodic_work = visor_periodic_work_create(DELAY_TIME,
-						       Workqueue,
+						       workqueue,
 						       lxser_periodic_work,
 						       ls, "visortty");
 	if (ls->periodic_work == NULL) {
@@ -224,7 +224,7 @@ lxser_shutdown(struct uart_port *port)
 {
 	/* The port is being closed by the last user.  Do any hardware
 	* specific stuff here */
-	LINUXSERIAL *ls = (__force LINUXSERIAL *) (port->membase);
+	LINUXSERIAL *ls = (__force LINUXSERIAL *)(port->membase);
 
 	INFODRV("%s", __func__);
 	if (ls->periodic_work != NULL) {
@@ -314,26 +314,26 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 	 * useful, since they are all LIES...
 	 */
 	ls->port.mapbase = devno + 1;
-	ls->port.membase = (void __iomem *) ls;	/* use for context */
+	ls->port.membase = (void __iomem *)ls;	/* use for context */
 	ls->port.uartclk = (921600 * 16);
 	ls->port.iotype = SERIAL_IO_MEM;
 
-	if (!Driver_Registered) {
+	if (!driver_registered) {
 		result = uart_register_driver(&visorserial_lxser_reg);
 		if (result) {
 			ERRDEVX(devno, "uart_register_driver failed");
 			rc = NULL;
 			goto Away;
 		}
-		Workqueue = create_singlethread_workqueue("visortty");
-		if (Workqueue == NULL) {
+		workqueue = create_singlethread_workqueue("visortty");
+		if (workqueue == NULL) {
 			ERRDEVX(devno, "cannot create workqueue");
 			uart_unregister_driver(&visorserial_lxser_reg);
 			rc = NULL;
 			goto Away;
 		}
 		INFODRV("tty driver registered");
-		Driver_Registered = TRUE;
+		driver_registered = TRUE;
 	}
 
 	result = uart_add_one_port(&visorserial_lxser_reg, &ls->port);
@@ -344,7 +344,7 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 		goto Away;
 	}
 	INFODEVX(devno, "tty port added");
-	Registered_Ports++;
+	registered_ports++;
 
 	rc = ls;
 Away:
@@ -364,13 +364,13 @@ linuxserial_destroy(LINUXSERIAL *ls)
 	if (ls == NULL)
 		return;
 	uart_remove_one_port(&visorserial_lxser_reg, &ls->port);
-	Registered_Ports--;
-	if (Registered_Ports <= 0)
+	registered_ports--;
+	if (registered_ports <= 0)
 		uart_unregister_driver(&visorserial_lxser_reg);
-	if (Workqueue != NULL) {
-		flush_workqueue(Workqueue);
-		destroy_workqueue(Workqueue);
-		Workqueue = NULL;
+	if (workqueue != NULL) {
+		flush_workqueue(workqueue);
+		destroy_workqueue(workqueue);
+		workqueue = NULL;
 	}
 	kfree(ls);
 }
