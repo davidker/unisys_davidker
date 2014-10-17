@@ -1,6 +1,6 @@
 /* visorserial_main.c
  *
- * Copyright � 2010 - 2013 UNISYS CORPORATION
+ * Copyright (c) 2010 - 2014 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,11 +21,11 @@
 #include "linuxconsole.h"
 #include "uisutils.h"
 
-static dev_t MajorDevSerial = -1;
+static dev_t majordevserial = -1;
 				/**< indicates major num for serial devices */
 static spinlock_t devnopool_lock;
-static void *DevNoPool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info Easyproc_driver_info;
+static void *devnopool;	/**< pool to grab device numbers from */
+static struct easyproc_driver_info easyproc_driver_info;
 
 static int visorserial_probe(struct visor_device *dev);
 static void visorserial_remove(struct visor_device *dev);
@@ -63,13 +63,13 @@ simplebus_match(struct device *xdev, struct device_driver *xdrv)
 /** This describes the TYPE of bus.
  *  (Don't confuse this with an INSTANCE of the bus.)
  */
-static struct bus_type Simplebus_type = {
+static struct bus_type simplebus_type = {
 	.name = "visorconsole",
 	.match = simplebus_match,
 };
 
-static struct workqueue_struct *Periodic_dev_workqueue;
-static struct visor_device *StandaloneDevice;
+static struct workqueue_struct *periodic_dev_workqueue;
+static struct visor_device *standalonedevice;
 
 static const struct file_operations visorserial_serial_fops = {
 	.owner = THIS_MODULE,
@@ -88,18 +88,18 @@ static const struct file_operations visorserial_serial_fops = {
 /** These are all the counters we maintain for each device.
  *  They will all be reported under /sys/bus/visorbus/devices/<devicename>.
  */
-typedef struct {
-	u64 hostBytesIn;   /**< bytes we have input from the host */
-	u64 hostBytesOut;  /**< bytes we have output to the host */
-	u64 umodeBytesIn;  /**< bytes we have input from user mode */
-	u64 umodeBytesOut; /**< bytes we have output to user mode */
+struct {
+	u64 host_bytes_in;   /**< bytes we have input from the host */
+	u64 host_bytes_out;  /**< bytes we have output to the host */
+	u64 umode_bytes_in;  /**< bytes we have input from user mode */
+	u64 umode_bytes_out; /**< bytes we have output to user mode */
 } DEVDATA_COUNTERS;
 
 /** These are all the devdata properties we maintain for each device.
  *  They will all be reported under /sys/bus/visorbus/devices/<devicename>.
  */
-typedef enum {
-	prop_openFileCount,
+enum {
+	prop_openfile_count,
 	/* Add items above, but don't forget to modify
 	 * register_devdata_attributes whenever you do...
 	 */
@@ -114,17 +114,17 @@ struct visorserial_devdata {
 	int devno;
 	struct visor_device *dev;
 	/** lock for dev */
-	struct rw_semaphore lockVisorDev;
+	struct rw_semaphore lock_visor_dev;
 	char name[99];
-	struct list_head list_all;   /**< link within List_all_devices list */
+	struct list_head list_all;   /**< link within list_all_devices list */
 	/** head of list of visorserial_filedata_serial structs, linked
 	 *  via the list_all member */
 	struct list_head list_files_serial;
-	uint openFileCount;
+	uint open_file_count;
 	/** lock for list_files_serial */
 	rwlock_t lock_files;
-	/** lock for openFileCount */
-	struct rw_semaphore lockOpenFileCount;
+	/** lock for open_file_count */
+	struct rw_semaphore lock_open_file_count;
 	DEVDATA_COUNTERS counter;
 	struct device_attribute devdata_property[prop_DEVDATAMAX];
 	struct kref kref;
@@ -134,9 +134,10 @@ struct visorserial_devdata {
 	int recvqueue;
 	LINUXSERIAL *linuxserial;
 };
+
 /** List of all visorserial_devdata structs, linked via the list_all member */
-static LIST_HEAD(List_all_devices);
-static DEFINE_SPINLOCK(Lock_all_devices);
+static LIST_HEAD(list_all_devices);
+static DEFINE_SPINLOCK(lock_all_devices);
 
 #define devdata_put(devdata, why)					\
 	do {								\
@@ -198,8 +199,8 @@ devdata_property_show(struct device *ddev,
 		return 0;
 	}
 	switch (ix) {
-	case prop_openFileCount:
-		return sprintf(buf, "%u\n", devdata->openFileCount);
+	case prop_openfile_count:
+		return sprintf(buf, "%u\n", devdata->open_file_count);
 	default:
 		pr_err("%s:%d trouble in paradise; ix=%lu\n",
 		       __FILE__, __LINE__, ix);
@@ -215,15 +216,14 @@ register_devdata_attributes(struct visor_device *dev)
 	struct visorserial_devdata *devdata = visor_get_drvdata(dev);
 	struct device_attribute *pattr = devdata->devdata_property;
 
-	pattr[prop_openFileCount].attr.name = "openFileCount";
+	pattr[prop_openfile_count].attr.name = "open_file_count";
 	for (i = 0; i < prop_DEVDATAMAX; i++) {
 		pattr[i].attr.mode = S_IRUGO;
 		pattr[i].show = devdata_property_show;
 		pattr[i].store = NULL;
 		rc = device_create_file(&dev->device, &pattr[i]);
 		if (rc < 0) {
-			ERRDRV("device_create_file(&dev->device, &pattr[i]): (status=%d)\n",
-					rc);
+			ERRDRV("device_create_file(&dev->device, &pattr[i]): (status=%d)\n", rc);
 			goto Away;
 		}
 	}
@@ -275,7 +275,7 @@ devdata_create(struct visor_device *dev)
 	struct visorserial_devdata *devdata = NULL;
 	int devno = -1;
 
-	devdata = kmalloc(sizeof(struct visorserial_devdata),
+	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
 		ERRDRV("allocation of visorserial_devdata failed\n");
@@ -284,8 +284,8 @@ devdata_create(struct visor_device *dev)
 	memset(devdata, '\0', sizeof(struct visorserial_devdata));
 	cdev_init(&devdata->cdev_serial, NULL);
 	spin_lock(&devnopool_lock);
-	devno = find_first_zero_bit(DevNoPool, MAXDEVICES);
-	set_bit(devno, DevNoPool);
+	devno = find_first_zero_bit(devnopool, MAXDEVICES);
+	set_bit(devno, devnopool);
 	spin_unlock(&devnopool_lock);
 	if (devno == MAXDEVICES)
 		devno = -1;
@@ -307,20 +307,20 @@ devdata_create(struct visor_device *dev)
 	cdev_init(&devdata->cdev_serial, &visorserial_serial_fops);
 	devdata->cdev_serial.owner = THIS_MODULE;
 	if (cdev_add(&devdata->cdev_serial,
-		     MKDEV(MAJOR(MajorDevSerial), devdata->devno), 1) < 0) {
+		     MKDEV(MAJOR(majordevserial), devdata->devno), 1) < 0) {
 		ERRDRV("failed to create serial char device\n");
 		goto Away;
 	}
 
 	rwlock_init(&devdata->lock_files);
-	init_rwsem(&devdata->lockOpenFileCount);
-	init_rwsem(&devdata->lockVisorDev);
+	init_rwsem(&devdata->lock_open_file_count);
+	init_rwsem(&devdata->lock_visor_dev);
 	INIT_LIST_HEAD(&devdata->list_files_serial);
 	kref_init(&devdata->kref);
 
-	spin_lock(&Lock_all_devices);
-	list_add_tail(&devdata->list_all, &List_all_devices);
-	spin_unlock(&Lock_all_devices);
+	spin_lock(&lock_all_devices);
+	list_add_tail(&devdata->list_all, &list_all_devices);
+	spin_unlock(&lock_all_devices);
 
 	if (visorserial_createttydevice)
 		devdata->linuxserial = linuxserial_create(devno, devdata,
@@ -337,7 +337,7 @@ Away:
 	if (rc == NULL) {
 		if (devno >= 0)	{
 			spin_lock(&devnopool_lock);
-			clear_bit(devno, DevNoPool);
+			clear_bit(devno, devnopool);
 			spin_unlock(&devnopool_lock);
 		}
 		if (devdata != NULL) {
@@ -358,19 +358,19 @@ devdata_release(struct kref *mykref)
 							   kref);
 	INFODRV("%s", __func__);
 	spin_lock(&devnopool_lock);
-	clear_bit(devdata->devno, DevNoPool);
+	clear_bit(devdata->devno, devnopool);
 	spin_unlock(&devnopool_lock);
-	spin_lock(&Lock_all_devices);
+	spin_lock(&lock_all_devices);
 	list_del(&devdata->list_all);
-	spin_unlock(&Lock_all_devices);
+	spin_unlock(&lock_all_devices);
 	cdev_del(&devdata->cdev_serial);
 	if (devdata->linuxserial) {
 		linuxserial_destroy(devdata->linuxserial);
 		devdata->linuxserial = NULL;
-		down_read(&devdata->lockVisorDev);
+		down_read(&devdata->lock_visor_dev);
 		if (devdata->dev != NULL)
 			visorbus_disable_channel_interrupts(devdata->dev);
-		up_read(&devdata->lockVisorDev);
+		up_read(&devdata->lock_visor_dev);
 	}
 	kfree(devdata);
 	INFODRV("%s finished", __func__);
@@ -406,7 +406,7 @@ visorserial_probe(struct visor_device *dev)
 		ERRDRV("register_device_attributes failed: (status=%d)\n", rc);
 		goto Away;
 	}
-	visor_easyproc_InitDevice(&Easyproc_driver_info,
+	visor_easyproc_InitDevice(&easyproc_driver_info,
 				  &devdata->procinfo, devdata->devno, devdata);
 
 Away:
@@ -430,7 +430,7 @@ visorserial_remove(struct visor_device *dev)
 	}
 	unregister_device_attributes(dev);
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&Easyproc_driver_info,
+	visor_easyproc_DeInitDevice(&easyproc_driver_info,
 				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	devdata_put(devdata, "existence");
@@ -453,7 +453,7 @@ visorserial_channel_interrupt(struct visor_device *dev)
 	while (visorchannel_signalremove(dev->visorchannel,
 					 devdata->recvqueue, &data)) {
 		new_char_from_host(devdata, data);
-		devdata->counter.hostBytesIn++;
+		devdata->counter.host_bytes_in++;
 	}
 
 Away:
@@ -492,7 +492,7 @@ simplebus_release_device(struct device *xdev)
 static void
 dev_periodic_work(void *xdev)
 {
-	struct visor_device *dev = (struct visor_device *) xdev;
+	struct visor_device *dev = (struct visor_device *)xdev;
 
 	visorserial_channel_interrupt(dev);
 	if (!visor_periodic_work_nextperiod(dev->periodic_work))
@@ -549,7 +549,7 @@ create_visor_device(u64 addr)
 	}
 	INFODRV("Channel %s discovered and connected",
 		visorchannel_id(visorchannel, s));
-	dev = kmalloc(sizeof(struct visor_device), GFP_KERNEL|__GFP_NORETRY);
+	dev = kmalloc(sizeof(*devdata), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
 		ERRDRV("failed to allocate visor_device\n");
 		goto Away;
@@ -557,14 +557,14 @@ create_visor_device(u64 addr)
 	memset(dev, 0, sizeof(struct visor_device));
 	dev->visorchannel = visorchannel;
 	sema_init(&dev->visordriver_callback_lock, 1);	/* unlocked */
-	dev->device.bus = &Simplebus_type;
+	dev->device.bus = &simplebus_type;
 	device_initialize(&dev->device);
 	dev->device.release = simplebus_release_device;
 	/* keep a reference just for us */
 	get_visordev(dev, "create", visorserial_debugref);
 	gotten = TRUE;
 	dev->periodic_work = visor_periodic_work_create(POLLJIFFIES,
-							Periodic_dev_workqueue,
+							periodic_dev_workqueue,
 							dev_periodic_work,
 							dev,
 							dev_name(&dev->device));
@@ -604,31 +604,31 @@ Away:
 static void
 visorserial_cleanup_guts(void)
 {
-	if (StandaloneDevice) {
-		StandaloneDevice->being_removed = TRUE;
+	if (standalonedevice) {
+		standalonedevice->being_removed = TRUE;
 		/* ensure that the being_removed flag is set before
 		 * continuing
 		 */
 		wmb();
-		dev_stop_periodic_work(StandaloneDevice);
-		lxcon_console_offline(StandaloneDevice);
-		visorserial_remove(StandaloneDevice);
-		put_visordev(StandaloneDevice, "create", visorserial_debugref);
-		device_unregister(&StandaloneDevice->device);
-		StandaloneDevice = NULL;
+		dev_stop_periodic_work(standalonedevice);
+		lxcon_console_offline(standalonedevice);
+		visorserial_remove(standalonedevice);
+		put_visordev(standalonedevice, "create", visorserial_debugref);
+		device_unregister(&standalonedevice->device);
+		standalonedevice = NULL;
 	}
-	flush_workqueue(Periodic_dev_workqueue); /* better not be any work! */
-	destroy_workqueue(Periodic_dev_workqueue);
-	Periodic_dev_workqueue = NULL;
-	bus_unregister(&Simplebus_type);
-	visor_easyproc_DeInitDriver(&Easyproc_driver_info);
-	if (MAJOR(MajorDevSerial) >= 0) {
-		unregister_chrdev_region(MajorDevSerial, MAXDEVICES);
-		MajorDevSerial = MKDEV(0, 0);
+	flush_workqueue(periodic_dev_workqueue); /* better not be any work! */
+	destroy_workqueue(periodic_dev_workqueue);
+	periodic_dev_workqueue = NULL;
+	bus_unregister(&simplebus_type);
+	visor_easyproc_DeInitDriver(&easyproc_driver_info);
+	if (MAJOR(majordevserial) >= 0) {
+		unregister_chrdev_region(majordevserial, MAXDEVICES);
+		majordevserial = MKDEV(0, 0);
 	}
-	if (DevNoPool != NULL) {
-		kfree(DevNoPool);
-		DevNoPool = NULL;
+	if (devnopool != NULL) {
+		kfree(devnopool);
+		devnopool = NULL;
 	}
 }
 
@@ -652,30 +652,30 @@ visorserial_init(void)
 	INFODRV("         debug=%d", visorserial_debug);
 	INFODRV("         debugref=%d", visorserial_debugref);
 
-	MajorDevSerial = MKDEV(0, 0);
+	majordevserial = MKDEV(0, 0);
 	spin_lock_init(&devnopool_lock);
-	DevNoPool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (DevNoPool == NULL) {
-		ERRDRV("Unable to create DevNoPool");
+	devnopool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
+	if (devnopool == NULL) {
+		ERRDRV("Unable to create devnopool");
 		goto Away;
 	}
-	if (alloc_chrdev_region(&MajorDevSerial, 0, MAXDEVICES,
+	if (alloc_chrdev_region(&majordevserial, 0, MAXDEVICES,
 				MYDRVNAME "_serial") < 0) {
 		ERRDRV("Unable to register char device %s",
 		       MYDRVNAME "_serial");
 		goto Away;
 	}
-	visor_easyproc_InitDriver(&Easyproc_driver_info,
+	visor_easyproc_InitDriver(&easyproc_driver_info,
 				  MYDRVNAME,
 				  visorserial_show_driver_info,
 				  visorserial_show_device_info);
-	rc = bus_register(&Simplebus_type);
+	rc = bus_register(&simplebus_type);
 	if (rc < 0) {
-		ERRDRV("bus_register(&Simplebus_type): (status=%d)\n", rc);
+		ERRDRV("bus_register(&simplebus_type): (status=%d)\n", rc);
 		goto Away;
 	}
-	Periodic_dev_workqueue = create_singlethread_workqueue("visorconsole");
-	if (Periodic_dev_workqueue == NULL) {
+	periodic_dev_workqueue = create_singlethread_workqueue("visorconsole");
+	if (periodic_dev_workqueue == NULL) {
 		rc = -ENOMEM;
 		ERRDRV("cannot create dev workqueue: (status=%d)\n", rc);
 		goto Away;
@@ -691,21 +691,21 @@ visorserial_init(void)
 		INFODRV("visorserial channel addr=%llx", visorserial_addr);
 		visorserial_channeladdress = visorserial_addr;
 	}
-	StandaloneDevice =
+	standalonedevice =
 	    create_visor_device(visorserial_channeladdress);
-	if (StandaloneDevice == NULL) {
+	if (standalonedevice == NULL) {
 		ERRDRV("failed to initialize channel @ 0x%lx",
 		       visorserial_channeladdress);
 		rc = -1;
 		goto Away;
 	}
-	if (visorserial_probe(StandaloneDevice) < 0) {
+	if (visorserial_probe(standalonedevice) < 0) {
 		ERRDRV("probe failed");
 		rc = -1;
 		goto Away;
 	}
-	if (visor_get_drvdata(StandaloneDevice) != NULL)
-		lxcon_console_online(visor_get_drvdata(StandaloneDevice),
+	if (visor_get_drvdata(standalonedevice) != NULL)
+		lxcon_console_online(visor_get_drvdata(standalonedevice),
 				     new_char_to_host);
 
 	rc = 0;
@@ -728,7 +728,7 @@ serial_create_file(struct visorserial_devdata *devdata)
 	void *rc = NULL;
 	struct visorserial_filedata_serial *filedata = NULL;
 
-	filedata = kmalloc(sizeof(struct visorserial_filedata_serial),
+	filedata = kmalloc(sizeof(*devdata),
 			   GFP_KERNEL|__GFP_NORETRY);
 	if (filedata == NULL) {
 		rc = NULL;
@@ -793,7 +793,7 @@ static void
 new_char_to_host(void *context, u8 c)
 {
 	struct visorserial_devdata *devdata =
-	    (struct visorserial_devdata *) (context);
+	    (struct visorserial_devdata *)(context);
 	int done = 0;
 
 	if (devdata->dev == NULL) {
@@ -803,7 +803,7 @@ new_char_to_host(void *context, u8 c)
 	while (!done) {
 		if (visorchannel_signalinsert(devdata->dev->visorchannel,
 					      devdata->xmitqueue, &c)) {
-			devdata->counter.hostBytesOut++;
+			devdata->counter.host_bytes_out++;
 			done = 1;
 		} else if (OK_TO_BLOCK_FOR_CONSOLE) {
 			/* bug here; counter will show that we dropped
@@ -813,8 +813,9 @@ new_char_to_host(void *context, u8 c)
 
 			for (i = 0; i < 100000; i++)
 				cpu_relax();
-		} else
+		} else {
 			done = 1;
+	     }
 	}
 }
 
@@ -823,10 +824,10 @@ host_side_disappeared(struct visorserial_devdata *devdata)
 {
 	struct list_head *listentry, *listtmp;
 
-	down_write(&devdata->lockVisorDev);
+	down_write(&devdata->lock_visor_dev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	up_write(&devdata->lockVisorDev);
+	up_write(&devdata->lock_visor_dev);
 	read_lock(&devdata->lock_files);
 	list_for_each_safe(listentry, listtmp, &devdata->list_files_serial) {
 		struct visorserial_filedata_serial *filedata =
@@ -848,30 +849,30 @@ serial_ready_to_read(struct visorserial_filedata_serial *filedata)
 }
 
 static void
-firstFileOpened(struct visorserial_filedata_serial *filedata)
+first_file_opened(struct visorserial_filedata_serial *filedata)
 {
 	struct visorserial_devdata *devdata = filedata->devdata;
 
 	INFODEV(devdata->name, "lights on");
 	if (devdata->linuxserial == NULL) {
-		down_read(&devdata->lockVisorDev);
+		down_read(&devdata->lock_visor_dev);
 		if (devdata->dev != NULL)
 			visorbus_enable_channel_interrupts(devdata->dev);
-		up_read(&devdata->lockVisorDev);
+		up_read(&devdata->lock_visor_dev);
 	}
 }
 
 static void
-lastFileClosed(struct visorserial_filedata_serial *filedata)
+last_file_closed(struct visorserial_filedata_serial *filedata)
 {
 	struct visorserial_devdata *devdata = filedata->devdata;
 
 	INFODEV(devdata->name, "lights off");
 	if (devdata->linuxserial == NULL) {
-		down_read(&devdata->lockVisorDev);
+		down_read(&devdata->lock_visor_dev);
 		if (devdata->dev != NULL)
 			visorbus_disable_channel_interrupts(devdata->dev);
-		up_read(&devdata->lockVisorDev);
+		up_read(&devdata->lock_visor_dev);
 	}
 }
 
@@ -883,7 +884,7 @@ visorserial_serial_open(struct inode *inode, struct file *file)
 	unsigned minor_number = iminor(inode);
 	int rc = -ENODEV;
 
-	list_for_each_entry(devdata, &List_all_devices, list_all) {
+	list_for_each_entry(devdata, &list_all_devices, list_all) {
 		if (devdata->devno == minor_number) {
 			INFODEV(devdata->name,
 				"%s minor=%d", __func__, minor_number);
@@ -899,11 +900,11 @@ visorserial_serial_open(struct inode *inode, struct file *file)
 			list_add_tail(&filedata->list_all,
 				      &devdata->list_files_serial);
 			write_unlock(&devdata->lock_files);
-			down_write(&devdata->lockOpenFileCount);
-			devdata->openFileCount++;
-			if (devdata->openFileCount == 1)
-				firstFileOpened(filedata);
-			up_write(&devdata->lockOpenFileCount);
+			down_write(&devdata->lock_open_file_count);
+			devdata->open_file_count++;
+			if (devdata->open_file_count == 1)
+				first_file_opened(filedata);
+			up_write(&devdata->lock_open_file_count);
 			rc = 0;
 			goto Away;
 		}
@@ -920,7 +921,7 @@ visorserial_serial_release(struct inode *inode, struct file *file)
 {
 	int rc = -1;
 	struct visorserial_filedata_serial *filedata =
-	    (struct visorserial_filedata_serial *) (file->private_data);
+	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
 	if (filedata == NULL) {
@@ -934,11 +935,11 @@ visorserial_serial_release(struct inode *inode, struct file *file)
 	}
 
 	INFODEV(devdata->name, "%s", __func__);
-	down_write(&devdata->lockOpenFileCount);
-	if (devdata->openFileCount == 1)
-		lastFileClosed(filedata);
-	devdata->openFileCount--;
-	up_write(&devdata->lockOpenFileCount);
+	down_write(&devdata->lock_open_file_count);
+	if (devdata->open_file_count == 1)
+		last_file_closed(filedata);
+	devdata->open_file_count--;
+	up_write(&devdata->lock_open_file_count);
 	write_lock(&devdata->lock_files);
 	list_del(&filedata->list_all);
 	write_unlock(&devdata->lock_files);
@@ -960,7 +961,7 @@ visorserial_serial_ioctl(struct inode *inode, struct file *file,
 {
 	int rc = -1;
 	struct visorserial_filedata_serial *filedata =
-	    (struct visorserial_filedata_serial *) (file->private_data);
+	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
 	if (filedata == NULL) {
@@ -986,7 +987,7 @@ visorserial_serial_read(struct file *file, char __user *buf,
 {
 	int rc = -1, readchars = 0, mycount = count;
 	struct visorserial_filedata_serial *filedata =
-	    (struct visorserial_filedata_serial *) (file->private_data);
+	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 	loff_t pos = *ppos;
 
@@ -1031,7 +1032,7 @@ visorserial_serial_read(struct file *file, char __user *buf,
 		rc = -EFAULT;
 		goto Away;
 	}
-	devdata->counter.umodeBytesOut += readchars;
+	devdata->counter.umode_bytes_out += readchars;
 	*ppos += readchars;
 	rc = readchars;
 Away:
@@ -1046,7 +1047,7 @@ visorserial_serial_write(struct file *file,
 {
 	int rc = -1, i = 0, writechars = 0;
 	struct visorserial_filedata_serial *filedata =
-	    (struct visorserial_filedata_serial *) (file->private_data);
+	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
 	if (filedata == NULL) {
@@ -1065,19 +1066,19 @@ visorserial_serial_write(struct file *file,
 		rc = -EFAULT;
 		goto Away;
 	}
-	devdata->counter.umodeBytesIn += count;
-	down_read(&devdata->lockVisorDev);
+	devdata->counter.umode_bytes_in += count;
+	down_read(&devdata->lock_visor_dev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
-		up_read(&devdata->lockVisorDev);
+		up_read(&devdata->lock_visor_dev);
 		rc = 0;	/* eof */
 		goto Away;
 	}
 
 	for (i = 0; i < count; i++) {
-		devdata->counter.hostBytesOut++;
+		devdata->counter.host_bytes_out++;
 		writechars++;
 	}
-	up_read(&devdata->lockVisorDev);
+	up_read(&devdata->lock_visor_dev);
 
 	rc = count;
 Away:
@@ -1091,7 +1092,7 @@ visorserial_serial_poll(struct file *file, poll_table *wait)
 {
 	int rc = -1;
 	struct visorserial_filedata_serial *filedata =
-	    (struct visorserial_filedata_serial *) (file->private_data);
+	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
 	if (filedata == NULL) {
@@ -1119,14 +1120,14 @@ static void
 visorserial_show_device_info(struct seq_file *seq, void *p)
 {
 	struct visorserial_devdata *devdata =
-	    (struct visorserial_devdata *) (p);
+	    (struct visorserial_devdata *)(p);
 
 	seq_printf(seq, "devno=%d\n", devdata->devno);
 	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-	seq_printf(seq, "hostBytesIn=%llu\n", devdata->counter.hostBytesIn);
-	seq_printf(seq, "hostBytesOut=%llu\n", devdata->counter.hostBytesOut);
-	seq_printf(seq, "umodeBytesIn=%llu\n", devdata->counter.umodeBytesIn);
-	seq_printf(seq, "umodeBytesOut=%llu\n", devdata->counter.umodeBytesOut);
+	seq_printf(seq, "host_bytes_in=%llu\n", devdata->counter.host_bytes_in);
+	seq_printf(seq, "host_bytes_out=%llu\n", devdata->counter.host_bytes_out);
+	seq_printf(seq, "umode_bytes_in=%llu\n", devdata->counter.umode_bytes_in);
+	seq_printf(seq, "umode_bytes_out=%llu\n", devdata->counter.umode_bytes_out);
 	if (devdata->dev == NULL || devdata->dev->visorchannel == NULL)
 		return;
 	visorchannel_debug(devdata->dev->visorchannel, 2, seq, 0);
