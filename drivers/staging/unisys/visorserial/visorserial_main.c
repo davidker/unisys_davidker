@@ -1124,10 +1124,14 @@ visorserial_show_device_info(struct seq_file *seq, void *p)
 
 	seq_printf(seq, "devno=%d\n", devdata->devno);
 	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-	seq_printf(seq, "host_bytes_in=%llu\n", devdata->counter.host_bytes_in);
-	seq_printf(seq, "host_bytes_out=%llu\n", devdata->counter.host_bytes_out);
-	seq_printf(seq, "umode_bytes_in=%llu\n", devdata->counter.umode_bytes_in);
-	seq_printf(seq, "umode_bytes_out=%llu\n", devdata->counter.umode_bytes_out);
+	seq_printf(seq, "host_bytes_in=%llu\n",
+		   devdata->counter.host_bytes_in);
+	seq_printf(seq, "host_bytes_out=%llu\n",
+		   devdata->counter.host_bytes_out);
+	seq_printf(seq, "umode_bytes_in=%llu\n",
+		   devdata->counter.umode_bytes_in);
+	seq_printf(seq, "umode_bytes_out=%llu\n",
+		   devdata->counter.umode_bytes_out);
 	if (devdata->dev == NULL || devdata->dev->visorchannel == NULL)
 		return;
 	visorchannel_debug(devdata->dev->visorchannel, 2, seq, 0);
