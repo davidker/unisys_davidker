@@ -228,7 +228,7 @@ chipset_device_create(ulong busNo, ulong devNo)
 
 	if (!paddr) {
 		rc = -1;
-		goto away;
+		goto cleanup;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 			 spar_vnic_channel_protocol_uuid)) {
@@ -239,9 +239,9 @@ chipset_device_create(ulong busNo, ulong devNo)
 		     devInfo.chanInfo.addrType == ADDRTYPE_localTest,
 		     devInfo.devInstGuid, &devInfo.chanInfo.intr)) {
 			rc = -2;
-			goto away;
+			goto cleanup;
 		}
-		goto away;
+		goto cleanup;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 				spar_vhba_channel_protocol_uuid)) {
 		/* Save off message with hba info in case of crash */
@@ -270,13 +270,13 @@ chipset_device_create(ulong busNo, ulong devNo)
 		     devInfo.chanInfo.addrType == ADDRTYPE_localTest,
 		     devInfo.devInstGuid, &devInfo.chanInfo.intr)) {
 			rc = -3;
-			goto away;
+			goto cleanup;
 		}
-		goto away;
+		goto cleanup;
 	}
 
 	rc = -4;		/* unsupported GUID */
-away:
+cleanup:
 	if (rc >= 0) {
 		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
 		POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, devNo, busNo,
@@ -300,19 +300,19 @@ chipset_device_destroy(ulong busNo, ulong devNo)
 	paddr = chipset_preamble(busNo, devNo, &devInfo);
 	if (!paddr) {
 		rc = -1;
-		goto away;
+		goto cleanup;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 			 spar_vnic_channel_protocol_uuid)) {
 		uislib_client_inject_del_vnic(busNo, devNo);
-		goto away;
+		goto cleanup;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 				spar_vhba_channel_protocol_uuid)) {
 		uislib_client_inject_del_vhba(busNo, devNo);
-		goto away;
+		goto cleanup;
 	}
 	rc = -1;		/* no match on GUID */
-away:
+cleanup:
 	if (rc >= 0)
 		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
 	else
@@ -331,19 +331,19 @@ chipset_device_pause(ulong busNo, ulong devNo)
 	paddr = chipset_preamble(busNo, devNo, &devInfo);
 	if (!paddr) {
 		rc = -1;
-		goto away;
+		goto cleanup;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 			 spar_vnic_channel_protocol_uuid)) {
 		rc = uislib_client_inject_pause_vnic(busNo, devNo);
-		goto away;
+		goto cleanup;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 				spar_vhba_channel_protocol_uuid)) {
 		rc = uislib_client_inject_pause_vhba(busNo, devNo);
-		goto away;
+		goto cleanup;
 	}
 	rc = -1;		/* no match on GUID */
-away:
+cleanup:
 	if (rc == CONTROLVM_RESP_SUCCESS)
 		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
 	/* Response sent when the pause is completed */
@@ -364,19 +364,19 @@ chipset_device_resume(ulong busNo, ulong devNo)
 	paddr = chipset_preamble(busNo, devNo, &devInfo);
 	if (!paddr) {
 		rc = -1;
-		goto away;
+		goto cleanup;
 	}
 	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 			 spar_vnic_channel_protocol_uuid)) {
 		rc = uislib_client_inject_resume_vnic(busNo, devNo);
-		goto away;
+		goto cleanup;
 	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
 				spar_vhba_channel_protocol_uuid)) {
 		rc = uislib_client_inject_resume_vhba(busNo, devNo);
-		goto away;
+		goto cleanup;
 	}
 	rc = -1;		/* no match on GUID */
-away:
+cleanup:
 	if (rc == CONTROLVM_RESP_SUCCESS)
 		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
 	else
