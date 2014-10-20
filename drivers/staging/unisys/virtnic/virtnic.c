@@ -173,7 +173,7 @@ struct virtnic_info {
 	struct datachan datachan;
 	struct sk_buff **rcvbuf;	/* rcvbuf is the array of rcv buffer */
 	/* we post to */
-	unsigned long long UniqueNum;
+	unsigned long long uniquenum;
 
 	/* the IOPART end */
 	int num_rcv_bufs;	/* indicates how many receive buffers the
@@ -195,7 +195,7 @@ struct virtnic_info {
 					   netif_stop_queue() */
 	int lower_threshold_net_xmits;	/* high water mark for calling
 					   netif_wake_queue() */
-	uuid_le zoneGuid;		/* specifies the zone for the switch in
+	uuid_le zoneguid;		/* specifies the zone for the switch in
 					   which this VNIC resides  */
 	struct uiscmdrsp *cmdrsp_rcv;	/* cmdrsp_rcv is used for
 					   posting/unposting rcv buffers */
@@ -263,7 +263,7 @@ static ssize_t show_zone(struct device *dev, struct device_attribute *attr,
 	struct net_device *net = to_net_dev(dev);
 	struct virtnic_info *vnicinfo = netdev_priv(net);
 
-	return scnprintf(buf, PAGE_SIZE, "%pUL\n", &vnicinfo->zoneGuid);
+	return scnprintf(buf, PAGE_SIZE, "%pUL\n", &vnicinfo->zoneguid);
 }
 
 static ssize_t show_clientstr(struct device *dev, struct device_attribute *attr,
@@ -311,7 +311,7 @@ post_skb(struct uiscmdrsp *cmdrsp,
 	cmdrsp->net.rcvpost.frag.pi_off =
 		(unsigned long)skb->data & PI_PAGE_MASK;
 	cmdrsp->net.rcvpost.frag.pi_len = skb->len;
-	cmdrsp->net.rcvpost.UniqueNum = vnicinfo->UniqueNum;
+	cmdrsp->net.rcvpost.UniqueNum = vnicinfo->uniquenum;
 
 	DBGINF("RCV_POST skb:%p pfn:%llu off:%x len:%d\n", skb,
 	       cmdrsp->net.rcvpost.frag.pi_pfn,
@@ -442,7 +442,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	spin_lock_init(&vnicinfo->datachan.chinfo.insertlock);
 	vnicinfo->enabled = 0;	/* not yet */
 	atomic_set(&vnicinfo->usage, 1);	/* starting val */
-	vnicinfo->zoneGuid = virtpcidev->net.zoneGuid;
+	vnicinfo->zoneguid = virtpcidev->net.zoneGuid;
 	vnicinfo->num_rcv_bufs = virtpcidev->net.num_rcv_bufs;
 	LOGINFNAME(vnicinfo->netdev, "num_rcv_bufs =  %d\n",
 		   vnicinfo->num_rcv_bufs);
@@ -459,7 +459,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	/* set the net_xmit outstanding threshold */
 	vnicinfo->max_outstanding_net_xmits =
 	    max(3, ((vnicinfo->num_rcv_bufs / 3) - 2));
-	/* always leave two slots open but you should have 3 at a minumum */
+	/* always leave two slots open but you should have 3 at a minimum */
 	LOGINFNAME(vnicinfo->netdev, "max_outstanding_net_xmits =  %d\n",
 		   vnicinfo->max_outstanding_net_xmits);
 	vnicinfo->upper_threshold_net_xmits =
@@ -2047,7 +2047,7 @@ virtnic_serverup(struct virtpci_dev *virtpcidev)
 			   "Server already processing change state message.");
 		return 0;
 	} else {
-		DBGINF("Server up message recieved for server that was already up.");
+		DBGINF("Server up message received for server that was already up.");
 	}
 	DBGINF("exiting virtnic_serverup");
 	return 1;
