@@ -157,7 +157,7 @@ chipset_bus_create(ulong busNo)
 	u64 channeladdr = 0;
 	ulong nchannelbytes = 0;
 	VISORCHIPSET_BUS_INFO businfo;
-	CONTROLVM_MESSAGE msg;
+	struct controlvm_message msg;
 
 	POSTCODE_LINUX_3(BUS_CREATE_ENTRY_PC, busNo, POSTCODE_SEVERITY_INFO);
 	if ((visorchipset_get_bus_info(busNo, &businfo)) &&
@@ -169,13 +169,13 @@ chipset_bus_create(ulong busNo)
 	/* Save off message with IOVM bus info in case of crash */
 	if ((uuid_le_cmp(businfo.chanInfo.channelInstGuid,
 			 spar_siovm_uuid) == 0)) {
-		msg.hdr.Id = CONTROLVM_BUS_CREATE;
-		msg.hdr.Flags.responseExpected = 0;
-		msg.hdr.Flags.server = 0;
-		msg.cmd.createBus.busNo = busNo;
-		msg.cmd.createBus.deviceCount = businfo.devNo;
-		msg.cmd.createBus.channelAddr = channeladdr;
-		msg.cmd.createBus.channelBytes = nchannelbytes;
+		msg.hdr.id = CONTROLVM_BUS_CREATE;
+		msg.hdr.flags.response_expected = 0;
+		msg.hdr.flags.server = 0;
+		msg.cmd.create_bus.bus_no = busNo;
+		msg.cmd.create_bus.dev_count = businfo.devNo;
+		msg.cmd.create_bus.channel_addr = channeladdr;
+		msg.cmd.create_bus.channel_bytes = nchannelbytes;
 		dump_vhba_bus = busNo;
 		visorchipset_save_message(&msg, CRASH_bus);
 	}
@@ -220,7 +220,7 @@ chipset_device_create(ulong busNo, ulong devNo)
 	void __iomem *paddr = NULL;
 	int rc = 0;
 	VISORCHIPSET_DEVICE_INFO devInfo;
-	CONTROLVM_MESSAGE msg;
+	struct controlvm_message msg;
 
 	paddr = chipset_preamble(busNo, devNo, &devInfo);
 	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, devNo, busNo,
@@ -246,18 +246,19 @@ chipset_device_create(ulong busNo, ulong devNo)
 				spar_vhba_channel_protocol_uuid)) {
 		/* Save off message with hba info in case of crash */
 		if (busNo == dump_vhba_bus) {
-			msg.hdr.Id = CONTROLVM_DEVICE_CREATE;
-			msg.hdr.Flags.responseExpected = 0;
-			msg.hdr.Flags.server = 0;
-			msg.cmd.createDevice.busNo = busNo;
-			msg.cmd.createDevice.devNo = devNo;
-			msg.cmd.createDevice.devInstGuid = devInfo.devInstGuid;
-			msg.cmd.createDevice.intr = devInfo.chanInfo.intr;
-			msg.cmd.createDevice.channelAddr =
+			msg.hdr.id = CONTROLVM_DEVICE_CREATE;
+			msg.hdr.flags.response_expected = 0;
+			msg.hdr.flags.server = 0;
+			msg.cmd.create_device.bus_no = busNo;
+			msg.cmd.create_device.dev_no = devNo;
+			msg.cmd.create_device.dev_inst_uuid =
+				devInfo.devInstGuid;
+			msg.cmd.create_device.intr = devInfo.chanInfo.intr;
+			msg.cmd.create_device.channel_addr =
 			    devInfo.chanInfo.channelAddr;
-			msg.cmd.createDevice.channelBytes =
+			msg.cmd.create_device.channel_bytes =
 			    devInfo.chanInfo.nChannelBytes;
-			msg.cmd.createDevice.dataTypeGuid =
+			msg.cmd.create_device.data_type_uuid =
 					spar_vhba_channel_protocol_uuid;
 			visorchipset_save_message(&msg, CRASH_dev);
 		}
