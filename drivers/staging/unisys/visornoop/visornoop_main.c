@@ -39,8 +39,6 @@ static int visornoop_pause(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func);
 static int visornoop_resume(struct visor_device *dev,
 			    VISORBUS_STATE_COMPLETE_FUNC complete_func);
-static void visornoop_show_device_info(struct seq_file *seq, void *p);
-static void visornoop_show_driver_info(struct seq_file *seq);
 
 /**  GUIDS for director channel type supported by this driver.
 */
