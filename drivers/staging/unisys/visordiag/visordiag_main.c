@@ -172,8 +172,8 @@ struct visordiag_devdata {
 	struct easyproc_device_info procinfo;
 	int xmitqueue;
 
-	DIAG_CHANNEL_PROTOCOL_HEADER __iomem *diag_channel_header;
-	DIAG_CHANNEL_PROTOCOL_HEADER dummy_diag_channel_header;
+	struct diag_channel_protocol_header __iomem *diag_channel_header;
+	struct diag_channel_protocol_header dummy_diag_channel_header;
 	dev_t devt; /* major, minor for first of NCHARDEVICES devices */
 	BOOL char_device_registered;
 	struct cdev cdev_diag;
@@ -233,7 +233,8 @@ EXPORT_SYMBOL_GPL(visordiag_release_severityfilter);
 
 static void set_severity_filter(u64 subsystem_mask, u8 filter,
 				u8 __iomem *all_filters);
-static void new_message_to_host(void *context, DIAG_CHANNEL_EVENT *event);
+static void new_message_to_host(void *context, 
+				struct diag_channel_event *event);
 static void destroy_file(struct visordiag_filedata *filedata);
 static void host_side_disappeared(struct visordiag_devdata *devdata);
 static void visordiag_show_device_info(struct seq_file *seq, void *p);
@@ -367,7 +368,7 @@ devdata_create(struct visor_device *dev)
 	dev_set_name(&devdata->dev->device, devdata->name);
 	devdata->xmitqueue = 0;
 	devdata->diag_channel_header =
-		(__force DIAG_CHANNEL_PROTOCOL_HEADER __iomem *)
+		(__force struct diag_channel_protocol_header __iomem *)
 		&devdata->dummy_diag_channel_header;
 
 	cdev_init(&devdata->cdev_diag, &visordiag_fops);
@@ -512,7 +513,7 @@ visordiag_probe(struct visor_device *dev)
 	struct visordiag_devdata *devdata = NULL;
 	MEMREGION *r = NULL;
 
-	ULTRA_DIAG_CHANNEL_PROTOCOL __iomem *p = NULL;
+	struct spar_diag_channel_protocol __iomem *p = NULL;
 
 	INFODRV("%s", __func__);
 
@@ -521,8 +522,8 @@ visordiag_probe(struct visor_device *dev)
 		rc = -1;
 		goto away;
 	}
-	if (!ULTRA_DIAG_CHANNEL_OK_CLIENT
-	    (visorchannel_get_header(dev->visorchannel), NULL)) {
+	if (!SPAR_DIAG_CHANNEL_OK_CLIENT(
+			visorchannel_get_header(dev->visorchannel))) {
 		ERRDRV("diag channel cannot be used: (status=-1)\n");
 		rc = -1;
 		goto away;
@@ -530,17 +531,17 @@ visordiag_probe(struct visor_device *dev)
 
 	r = visorchannel_get_memregion(dev->visorchannel);
 	if (r)
-		p = (ULTRA_DIAG_CHANNEL_PROTOCOL __iomem *)
+		p = (struct spar_diag_channel_protocol __iomem *)
 			visor_memregion_get_pointer(r);
 
 	if (p) {
-		devdata->diag_channel_header = &p->DiagChannelHeader;
+		devdata->diag_channel_header = &p->diag_channel_header;
 
 		/* Store the address of the Filter for access via
 		 * visordiag_get_severityfilter
 		 */
 		subsystem_severity_filter_global =
-		    devdata->diag_channel_header->SubsystemSeverityFilter;
+		    devdata->diag_channel_header->subsystem_severity_filter;
 	}
 
 	visor_set_drvdata(dev, devdata);
@@ -631,7 +632,7 @@ create_visor_device(u64 addr)
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE;
 	char s[99];
-	uuid_le guid = ULTRA_DIAG_CHANNEL_PROTOCOL_GUID;
+	uuid_le guid = SPAR_DIAG_CHANNEL_PROTOCOL_UUID;
 
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	visorchannel = visorchannel_create(addr, DIAG_CH_SIZE, guid);
@@ -731,7 +732,7 @@ visordiag_process_device_diag_command(char *buf, size_t count,
 	if (sscanf(s, "setfilter %lli %i", &subsystem_mask, &filter) == 2)
 		set_severity_filter(subsystem_mask, (u8)filter,
 				    devdata->diag_channel_header->
-				    SubsystemSeverityFilter);
+				    subsystem_severity_filter);
 	else
 		pr_info("Usage: setfilter <subsystem_mask> <severity_filter>\n");
 }
@@ -1122,7 +1123,7 @@ parse_for_pri(char *pdest, int *pdest_bytes, int default_pri)
  *  consumed from the input string if an event was extracted.
  */
 static int
-visordiag_extract_event_ex(char *s, int n, DIAG_CHANNEL_EVENT *event,
+visordiag_extract_event_ex(char *s, int n, struct diag_channel_event *event,
 			   int default_pri)
 {
 	int i = 0, source_bytes = 0, dest_bytes = 0;
@@ -1147,35 +1148,35 @@ visordiag_extract_event_ex(char *s, int n, DIAG_CHANNEL_EVENT *event,
 	 */
 	pri = parse_for_pri(p, &dest_bytes, pri);
 	/* string to log is now at <p> for <dest_bytes> */
-	memset(event, 0, sizeof(DIAG_CHANNEL_EVENT));
-	event->Severity = pri_to_severity(pri);
-	event->Subsystem = pri_to_subsystem(pri);
-	pri_to_module_name(pri, event->ModuleName, sizeof(event->ModuleName));
-	if (dest_bytes >= sizeof(event->AdditionalInfo))
-		dest_bytes = sizeof(event->AdditionalInfo) - 1;
+	memset(event, 0, sizeof(struct diag_channel_event));
+	event->severity = pri_to_severity(pri);
+	event->subsystem = pri_to_subsystem(pri);
+	pri_to_module_name(pri, event->module_name, sizeof(event->module_name));
+	if (dest_bytes >= sizeof(event->additional_info))
+		dest_bytes = sizeof(event->additional_info) - 1;
 
 	do_gettimeofday(&time);
 	to_tm(time.tv_sec, &tm);
-	event->Timestamp.Year = tm.tm_year;
-	event->Timestamp.Month = tm.tm_mon + 1;
-	event->Timestamp.Day = tm.tm_mday;
-	event->Timestamp.Hour = tm.tm_hour;
-	event->Timestamp.Minute = tm.tm_min;
-	event->Timestamp.Second = tm.tm_sec;
+	event->timestamp.year = tm.tm_year;
+	event->timestamp.month = tm.tm_mon + 1;
+	event->timestamp.day = tm.tm_mday;
+	event->timestamp.hour = tm.tm_hour;
+	event->timestamp.minute = tm.tm_min;
+	event->timestamp.second = tm.tm_sec;
 	/* HACK - to be consistent with the timestamps being logged in the
 	 * EFI environment, we abuse the nanosecond field to contain the
 	 * middle 4 bytes of the 8-byte processor TSC value
 	 */
-	event->Timestamp.Nanosecond =
+	event->timestamp.nanosecond =
 	    (get_cycles() & 0x0000FFFFFFFFFFFFULL) >> 16;
 	/* INFODRV("Cycles=0x%-16.16Lx\n", get_cycles()); */
-	memcpy(event->AdditionalInfo, p, dest_bytes);
-	event->AdditionalInfo[dest_bytes] = '\0';
+	memcpy(event->additional_info, p, dest_bytes);
+	event->additional_info[dest_bytes] = '\0';
 	return source_bytes;
 }
 
 static void
-new_message_to_host(void *context, DIAG_CHANNEL_EVENT *event)
+new_message_to_host(void *context, struct diag_channel_event *event)
 {
 	struct visordiag_devdata *devdata =
 	    (struct visordiag_devdata *)(context);
@@ -1389,7 +1390,7 @@ visordiag_file_write_guts(struct file *file,
 	struct visordiag_filedata *filedata =
 	    (struct visordiag_filedata *)(file->private_data);
 	struct visordiag_devdata *devdata = NULL;
-	DIAG_CHANNEL_EVENT event;
+	struct diag_channel_event event;
 
 	if (filedata == NULL) {
 		ERRDRV("unknown file\n");
@@ -1430,10 +1431,10 @@ visordiag_file_write_guts(struct file *file,
 				       filedata->buf + i, filedata->nbuf - i);
 			break;
 		}
-		if ((event.Severity & SEVERITY_MASK) >=
+		if ((event.severity & SEVERITY_MASK) >=
 		    VISORDIAG_MIN_SEVERITY_FOR_SUBSYS
-		    (devdata->diag_channel_header->SubsystemSeverityFilter,
-		     event.Subsystem))
+		    (devdata->diag_channel_header->subsystem_severity_filter,
+		     event.subsystem))
 			new_message_to_host(devdata, &event);
 		i += count;
 	}
@@ -1467,7 +1468,7 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	struct visordiag_filedata *filedata =
 	    (struct visordiag_filedata *)(file->private_data);
 	struct visordiag_devdata *devdata = NULL;
-	DIAG_CHANNEL_EVENT event;
+	struct diag_channel_event event;
 	uint throttled_count = 0;
 	int slots_avail, max_slots;
 	BOOL timed_out = FALSE;
@@ -1486,10 +1487,11 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	/* If data exceeds the size of the buffer (should never
 	 * happen) return an error.
 	 */
-	if (count > sizeof(event.AdditionalInfo)) {
+	if (count > sizeof(event.additional_info)) {
 		ERRDEV(devdata->name,
 		       "%s failed. Num of chars (%d) exceeded limit of %d.\n",
-		       __func__, (int)count, (int)sizeof(event.AdditionalInfo));
+		       __func__, (int)count, 
+		       (int)sizeof(event.additional_info));
 		rc = -EFAULT;
 		goto away;
 	}
@@ -1504,14 +1506,14 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	}
 
 	/* Prepare the event. */
-	memset(&event, 0, sizeof(DIAG_CHANNEL_EVENT));
-	strncpy((char *)(event.ModuleName), module_name, MAX_MODULE_NAME_SIZE);
-	event.Severity = CAUSE_FILE_XFER_SEVERITY_PRINT;
-	event.EventId = filedata->offset;
-	event.LineNumber = count;	/* Special use for LineNumber on this
+	memset(&event, 0, sizeof(struct diag_channel_event));
+	strncpy((char *)(event.module_name), module_name, MAX_MODULE_NAME_SIZE);
+	event.severity = CAUSE_FILE_XFER_SEVERITY_PRINT;
+	event.event_id = filedata->offset;
+	event.line_number = count;	/* Special use for LineNumber on this
 					 * device. Zero value marks end-of-file
 					 * being transferred. */
-	if (copy_from_user(event.AdditionalInfo, buf, count)) {
+	if (copy_from_user(event.additional_info, buf, count)) {
 		ERRDEV(devdata->name, "%s failed. copy_from_user call returned non-zero result.\n",
 		       __func__);
 		up_read(&devdata->lock_visor_dev);
@@ -1604,14 +1606,14 @@ visordiag_show_device_info(struct seq_file *seq, void *p)
 	for (i = 0; i < 32; i++)
 		seq_printf(seq, "%-2.2x ",
 			   readb(&devdata->diag_channel_header->
-				 SubsystemSeverityFilter[i]));
+				 subsystem_severity_filter[i]));
 	seq_puts(seq, "\n");
 	seq_puts(seq, "SubsystemSeverityFilter (for subsystems 32..63):\n");
 	seq_puts(seq, "  0x ");
 	for (i = 32; i < 64; i++)
 		seq_printf(seq, "%-2.2x ",
 			   readb(&devdata->diag_channel_header->
-				 SubsystemSeverityFilter[i]));
+				 subsystem_severity_filter[i]));
 	seq_puts(seq, "\n");
 }
 
@@ -1627,7 +1629,7 @@ visordiag_show_filter(struct seq_file *seq, void *p, int subsys,
 	seq_printf(seq, "%d:%d\n",
 		   subsys,
 		   (readb(&devdata->diag_channel_header->
-			  SubsystemSeverityFilter[subsys]) & mask) >> shift);
+			  subsystem_severity_filter[subsys]) & mask) >> shift);
 }
 
 /* /proc/visordiag/device/0/channel_slots_avail
