@@ -271,12 +271,12 @@ static ssize_t show_clientstr(struct device *dev, struct device_attribute *attr,
 {
 	struct net_device *net = to_net_dev(dev);
 	struct virtnic_info *vnicinfo = netdev_priv(net);
-	ULTRA_IO_CHANNEL_PROTOCOL *chan =
-		(ULTRA_IO_CHANNEL_PROTOCOL *)vnicinfo->
+	struct spar_io_channel_protocol *chan =
+		(struct spar_io_channel_protocol *)vnicinfo->
 		datachan.chinfo.queueinfo->chan;
 
 	return scnprintf(buf, PAGE_SIZE, "%s\n",
-			(char *)&chan->clientString);
+			(char *)&chan->client_string);
 }
 static DEVICE_ATTR(clientstr, S_IRUGO, show_clientstr, NULL);
 static DEVICE_ATTR(zone, S_IRUGO, show_zone, NULL);
@@ -311,7 +311,7 @@ post_skb(struct uiscmdrsp *cmdrsp,
 	cmdrsp->net.rcvpost.frag.pi_off =
 		(unsigned long)skb->data & PI_PAGE_MASK;
 	cmdrsp->net.rcvpost.frag.pi_len = skb->len;
-	cmdrsp->net.rcvpost.UniqueNum = vnicinfo->uniquenum;
+	cmdrsp->net.rcvpost.unique_num = vnicinfo->uniquenum;
 
 	DBGINF("RCV_POST skb:%p pfn:%llu off:%x len:%d\n", skb,
 	       cmdrsp->net.rcvpost.frag.pi_pfn,
