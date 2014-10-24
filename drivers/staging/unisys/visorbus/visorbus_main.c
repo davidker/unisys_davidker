@@ -377,8 +377,8 @@ static ssize_t businst_attr_client_bus_info(struct visorbus_devdata *businst,
 		remain -= x;
 		x = visorchannel_read(businst->chan,
 				      offsetof(struct
-					       ultra_vbus_channel_protocol,
-					       ChpInfo),
+					       spar_vbus_channel_protocol,
+					       chp_info),
 				      &dev_info, sizeof(dev_info));
 		if (x >= 0) {
 			x = vbuschannel_devinfo_to_string(&dev_info, p,
@@ -388,8 +388,8 @@ static ssize_t businst_attr_client_bus_info(struct visorbus_devdata *businst,
 		}
 		x = visorchannel_read(businst->chan,
 				      offsetof(struct
-					       ultra_vbus_channel_protocol,
-					       BusInfo),
+					       spar_vbus_channel_protocol,
+					       bus_info),
 				      &dev_info, sizeof(dev_info));
 		if (x >= 0) {
 			x = vbuschannel_devinfo_to_string(&dev_info, p,
@@ -397,7 +397,7 @@ static ssize_t businst_attr_client_bus_info(struct visorbus_devdata *businst,
 			p += x;
 			remain -= x;
 		}
-		off = offsetof(struct ultra_vbus_channel_protocol, DevInfo);
+		off = offsetof(struct spar_vbus_channel_protocol, dev_info);
 		i = 0;
 		while (off + sizeof(dev_info) <=
 		       visorchannel_get_nbytes(businst->chan)) {
@@ -1050,8 +1050,8 @@ init_vbus_channel(VISORCHANNEL *chan)
 {
 	int rc = -1;
 	ulong allocated_bytes = visorchannel_get_nbytes(chan);
-	struct ultra_vbus_channel_protocol *x =
-		kmalloc(sizeof(struct ultra_vbus_channel_protocol),
+	struct spar_vbus_channel_protocol *x =
+		kmalloc(sizeof(struct spar_vbus_channel_protocol),
 			GFP_KERNEL|__GFP_NORETRY);
 
 	POSTCODE_LINUX_3(VBUS_CHANNEL_ENTRY_PC, rc, POSTCODE_SEVERITY_INFO);
@@ -1068,13 +1068,13 @@ init_vbus_channel(VISORCHANNEL *chan)
 		goto away;
 	}
 	if (visorchannel_read
-	    (chan, 0, x, sizeof(struct ultra_vbus_channel_protocol)) < 0) {
+	    (chan, 0, x, sizeof(struct spar_vbus_channel_protocol)) < 0) {
 		ERRDRV("%s chan read failed", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
 		goto away;
 	}
-	if (!ULTRA_VBUS_CHANNEL_OK_SERVER(allocated_bytes)) {
+	if (!SPAR_VBUS_CHANNEL_OK_SERVER(allocated_bytes)) {
 		ERRDRV("%s channel cannot be used", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
@@ -1082,7 +1082,7 @@ init_vbus_channel(VISORCHANNEL *chan)
 	}
 
 	if (visorchannel_write
-	    (chan, 0, x, sizeof(struct ultra_vbus_channel_protocol)) < 0) {
+	    (chan, 0, x, sizeof(struct spar_vbus_channel_protocol)) < 0) {
 		ERRDRV("%s chan write failed", __func__);
 		POSTCODE_LINUX_3(VBUS_CHANNEL_FAILURE_PC, chan,
 				 POSTCODE_SEVERITY_ERR);
@@ -1101,12 +1101,11 @@ away:
 }
 
 static int
-get_vbus_header_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info)
+get_vbus_header_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info)
 {
 	int rc = -1;
 
-	if (!SPAR_VBUS_CHANNEL_OK_CLIENT(visorchannel_get_header(chan),
-					 NULL)) {
+	if (!SPAR_VBUS_CHANNEL_OK_CLIENT(visorchannel_get_header(chan))) {
 		ERRDRV("vbus channel cannot be used - visorchannel_get_header failed");
 		goto away;
 	}
@@ -1116,15 +1115,16 @@ get_vbus_header_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info)
 		ERRDRV("%s chan read failed", __func__);
 		goto away;
 	}
-	if (hdr_info->structBytes < sizeof(ULTRA_VBUS_HEADERINFO)) {
+	if (hdr_info->struct_bytes < sizeof(struct spar_vbus_headerinfo)) {
 		ERRDRV("vbus channel not used, because header too small (%d < %lu)",
-		       hdr_info->structBytes, sizeof(ULTRA_VBUS_HEADERINFO));
+		       hdr_info->struct_bytes,
+		       sizeof(struct spar_vbus_headerinfo));
 		goto away;
 	}
-	if (hdr_info->deviceInfoStructBytes <
+	if (hdr_info->device_info_struct_bytes <
 	    sizeof(struct ultra_vbus_deviceinfo)) {
 		ERRDRV("vbus channel not used, because devinfo too small (%d < %lu)",
-		       hdr_info->deviceInfoStructBytes,
+		       hdr_info->device_info_struct_bytes,
 		       sizeof(struct ultra_vbus_deviceinfo));
 		goto away;
 	}
@@ -1134,17 +1134,17 @@ away:
 }
 
 /* Write the contents of <info> to the struct
- * ultra_vbus_channel_protocol.ChpInfo. */
+ * spar_vbus_channel_protocol.chp_info. */
 
 static int
-write_vbus_chp_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info,
+write_vbus_chp_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info,
 		    struct ultra_vbus_deviceinfo *info)
 {
-	int off = sizeof(struct channel_header) + hdr_info->chpInfoByteOffset;
+	int off = sizeof(struct channel_header) + hdr_info->chp_info_offset;
 	int rc = -1;
 
-	if (hdr_info->chpInfoByteOffset == 0) {
-		ERRDRV("vbus channel not used, because chpInfoByteOffset == 0");
+	if (hdr_info->chp_info_offset == 0) {
+		ERRDRV("vbus channel not used, because chp_info_offset == 0");
 		goto away;
 	}
 	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
@@ -1158,17 +1158,17 @@ away:
 }
 
 /* Write the contents of <info> to the struct
- * ultra_vbus_channel_protocol.BusInfo. */
+ * spar_vbus_channel_protocol.bus_info. */
 
 static int
-write_vbus_bus_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info,
+write_vbus_bus_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info,
 		    struct ultra_vbus_deviceinfo *info)
 {
-	int off = sizeof(struct channel_header) + hdr_info->busInfoByteOffset;
+	int off = sizeof(struct channel_header) + hdr_info->bus_info_offset;
 	int rc = -1;
 
-	if (hdr_info->busInfoByteOffset == 0) {
-		ERRDRV("vbus channel not used, because busInfoByteOffset == 0");
+	if (hdr_info->bus_info_offset == 0) {
+		ERRDRV("vbus channel not used, because bus_info_offset == 0");
 		goto away;
 	}
 	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
@@ -1182,19 +1182,19 @@ away:
 }
 
 /* Write the contents of <info> to the
- * struct ultra_vbus_channel_protocol.DevInfo[<devix>].
+ * struct spar_vbus_channel_protocol.dev_info[<devix>].
  */
 static int
-write_vbus_dev_info(VISORCHANNEL *chan, ULTRA_VBUS_HEADERINFO *hdr_info,
+write_vbus_dev_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info,
 		    struct ultra_vbus_deviceinfo *info, int devix)
 {
 	int off =
-	    (sizeof(struct channel_header) + hdr_info->devInfoByteOffset) +
-	    (hdr_info->deviceInfoStructBytes * devix);
+	    (sizeof(struct channel_header) + hdr_info->dev_info_offset) +
+	    (hdr_info->device_info_struct_bytes * devix);
 	int rc = -1;
 
-	if (hdr_info->devInfoByteOffset == 0) {
-		ERRDRV("vbus channel not used, because devInfoByteOffset == 0");
+	if (hdr_info->dev_info_offset == 0) {
+		ERRDRV("vbus channel not used, because dev_info_offset == 0");
 		goto away;
 	}
 	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {

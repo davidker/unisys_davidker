@@ -47,7 +47,7 @@ struct visorbus_devdata {
 	struct kobject kobj;
 	VISORCHANNEL *chan;	/* channel area for bus itself */
 	BOOL vbus_valid;
-	ULTRA_VBUS_HEADERINFO vbus_hdr_info;
+	struct spar_vbus_headerinfo vbus_hdr_info;
 };
 
 #endif

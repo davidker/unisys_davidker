@@ -180,7 +180,8 @@ chipset_bus_create(ulong busNo)
 		visorchipset_save_message(&msg, CRASH_bus);
 	}
 
-	if (!uislib_client_inject_add_bus(busNo, UltraVbusChannelProtocolGuid,
+	if (!uislib_client_inject_add_bus(busNo, 
+					  spar_vbus_channel_protocol_uuid,
 					  channeladdr, nchannelbytes)) {
 		rc = -1;
 	}
