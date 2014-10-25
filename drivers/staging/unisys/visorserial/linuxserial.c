@@ -203,7 +203,8 @@ lxser_startup(struct uart_port *port)
 	/* this is the first time this port is opened do any hardware
 	 * initialization needed here
 	 */
-	struct linux_serial *ls = (__force struct linux_serial *)(port->membase);
+	struct linux_serial *ls =
+	(__force struct linux_serial *)(port->membase);
 
 	INFODRV("%s", __func__);
 	ls->periodic_work = visor_periodic_work_create(DELAY_TIME,
@@ -224,7 +225,8 @@ lxser_shutdown(struct uart_port *port)
 {
 	/* The port is being closed by the last user.  Do any hardware
 	* specific stuff here */
-	struct linux_serial *ls = (__force struct linux_serial *)(port->membase);
+	struct linux_serial *ls =
+	(__force struct linux_serial *)(port->membase);
 
 	INFODRV("%s", __func__);
 	if (ls->periodic_work != NULL) {
@@ -292,13 +294,13 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 		ERRDEVX(devno, "tty device NOT created (max tty devices=%d)",
 			UART_NR);
 		rc = NULL;
-		goto Away;
+		goto cleanups;
 	}
-	ls = kmalloc(sizeof(struct linux_serial), GFP_KERNEL|__GFP_NORETRY);
+	ls = kmalloc(sizeof(*ls), GFP_KERNEL|__GFP_NORETRY);
 	if (ls == NULL) {
 		ERRDEVX(devno, "%s allocation failed ", __func__);
 		rc = NULL;
-		goto Away;
+		goto cleanups;
 	}
 	memset(ls, '\0', sizeof(struct linux_serial));
 	ls->devno = devno;
@@ -323,14 +325,14 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 		if (result) {
 			ERRDEVX(devno, "uart_register_driver failed");
 			rc = NULL;
-			goto Away;
+			goto cleanups;
 		}
 		workqueue = create_singlethread_workqueue("visortty");
 		if (workqueue == NULL) {
 			ERRDEVX(devno, "cannot create workqueue");
 			uart_unregister_driver(&visorserial_lxser_reg);
 			rc = NULL;
-			goto Away;
+			goto cleanups;
 		}
 		INFODRV("tty driver registered");
 		driver_registered = TRUE;
@@ -341,13 +343,13 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 		ERRDEVX(devno, "uart_add_one_port failed");
 		uart_unregister_driver(&visorserial_lxser_reg);
 		rc = NULL;
-		goto Away;
+		goto cleanups;
 	}
 	INFODEVX(devno, "tty port added");
 	registered_ports++;
 
 	rc = ls;
-Away:
+cleanups:
 	if (rc == NULL) {
 		if (ls != NULL) {
 			kfree(ls);

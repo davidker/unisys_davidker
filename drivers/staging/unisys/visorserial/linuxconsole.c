@@ -103,17 +103,17 @@ lxcon_console_setup(struct console *co, char *options)
 
 	if (!options) {
 		if (visorserial_channeladdress != 0)
-			goto Away; /* channeladdress supplied on module load */
+			goto cleanups; /* channeladdress supplied on module load */
 		pr_info("%s - channel address must be specified!\n",
 			__func__);
 		rc = -ENODEV;
-		goto Away;
+		goto cleanups;
 	}
 	pr_info("%s - options='%s'\n", __func__, options);
 	if (kstrtoul(s, 0, &channel_address)) {
 		pr_info("%s - channel address is NULL!\n", __func__);
 		rc = -ENODEV;
-		goto Away;
+		goto cleanups;
 	}
 	while (*s != '\0' && *s != ',')
 		s++;
@@ -121,11 +121,11 @@ lxcon_console_setup(struct console *co, char *options)
 		pr_info("%s - extraneous console options ('%s')!\n",
 			__func__, s);
 		rc = -ENODEV;
-		goto Away;
+		goto cleanups;
 	}
 	visorserial_channeladdress = channel_address;
 
-Away:
+cleanups:
 	if (rc >= 0) {
 		pr_info("%s - using %s console @ 0x%lx\n",
 			__func__, CONSOLE_TYPE_STRING,
