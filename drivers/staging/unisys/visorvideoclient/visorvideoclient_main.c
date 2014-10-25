@@ -36,8 +36,8 @@
 #include "easyproc.h"
 
 static spinlock_t devnopool_lock;
-static void *DevNoPool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info Easyproc_driver_info;
+static void *dev_no_pool;	/**< pool to grab device numbers from */
+static struct easyproc_driver_info easyproc_drv_info;
 
 static int visorvideoclient_probe(struct visor_device *dev);
 static void visorvideoclient_remove(struct visor_device *dev);
@@ -94,17 +94,17 @@ struct visorvideoclient_devdata {
 	int devno;
 	struct visor_device *dev;
 	/** lock for dev */
-	struct rw_semaphore lockVisorDev;
+	struct rw_semaphore lock_visor_dev;
 	char name[99];
-	struct list_head list_all;   /**< link within List_all_devices list */
+	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
 	struct easyproc_device_info procinfo;
 };
 
 /** List of all visorvideoclient_devdata structs,
   * linked via the list_all member */
-static LIST_HEAD(List_all_devices);
-static DEFINE_SPINLOCK(Lock_all_devices);
+static LIST_HEAD(list_all_devices);
+static DEFINE_SPINLOCK(lock_all_devices);
 
 #define devdata_put(devdata, why)					\
 	do {								\
@@ -137,33 +137,33 @@ devdata_create(struct visor_device *dev)
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
 		ERRDRV("allocation of visorvideoclient_devdata failed)\n");
-		goto Away;
+		goto cleanups;
 	}
 	memset(devdata, '\0', sizeof(struct visorvideoclient_devdata));
 	spin_lock(&devnopool_lock);
-	devno = find_first_zero_bit(DevNoPool, MAXDEVICES);
-	set_bit(devno, DevNoPool);
+	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
+	set_bit(devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
 	if (devno == MAXDEVICES)
 		devno = -1;
 	if (devno < 0) {
 		ERRDRV("attempt to create more than MAXDEVICES devices\n");
-		goto Away;
+		goto cleanups;
 	}
 	devdata->devno = devno;
 	devdata->dev = dev;
 	strncpy(devdata->name, dev_name(&dev->device), sizeof(devdata->name));
-	init_rwsem(&devdata->lockVisorDev);
+	init_rwsem(&devdata->lock_visor_dev);
 	kref_init(&devdata->kref);
-	spin_lock(&Lock_all_devices);
-	list_add_tail(&devdata->list_all, &List_all_devices);
-	spin_unlock(&Lock_all_devices);
+	spin_lock(&lock_all_devices);
+	list_add_tail(&devdata->list_all, &list_all_devices);
+	spin_unlock(&lock_all_devices);
 	rc = devdata;
-Away:
+cleanups:
 	if (rc == NULL) {
 		if (devno >= 0) {
 			spin_lock(&devnopool_lock);
-			clear_bit(devno, DevNoPool);
+			clear_bit(devno, dev_no_pool);
 			spin_unlock(&devnopool_lock);
 		}
 		if (devdata != NULL)
@@ -180,11 +180,11 @@ devdata_release(struct kref *mykref)
 
 	INFODRV("%s", __func__);
 	spin_lock(&devnopool_lock);
-	clear_bit(devdata->devno, DevNoPool);
+	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
-	spin_lock(&Lock_all_devices);
+	spin_lock(&lock_all_devices);
 	list_del(&devdata->list_all);
-	spin_unlock(&Lock_all_devices);
+	spin_unlock(&lock_all_devices);
 	kfree(devdata);
 	INFODRV("%s finished", __func__);
 }
@@ -199,14 +199,14 @@ visorvideoclient_probe(struct visor_device *dev)
 	devdata = devdata_create(dev);
 	if (devdata == NULL) {
 		rc = -1;
-		goto Away;
+		goto cleanups;
 	}
 	visor_set_drvdata(dev, devdata);
-	visor_easyproc_InitDevice(&Easyproc_driver_info,
+	visor_easyproc_InitDevice(&easyproc_drv_info,
 				  &devdata->procinfo, devdata->devno, devdata);
 	rc = 0;
 
-Away:
+cleanups:
 	INFODRV("%s finished", __func__);
 	if (rc < 0) {
 		if (devdata != NULL)
@@ -218,10 +218,10 @@ Away:
 static void
 host_side_disappeared(struct visorvideoclient_devdata *devdata)
 {
-	down_write(&devdata->lockVisorDev);
+	down_write(&devdata->lock_visor_dev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	up_write(&devdata->lockVisorDev);
+	up_write(&devdata->lock_visor_dev);
 }
 
 static void
@@ -232,14 +232,14 @@ visorvideoclient_remove(struct visor_device *dev)
 	INFODRV("%s", __func__);
 	if (devdata == NULL) {
 		ERRDRV("no devdata in %s", __func__);
-		goto Away;
+		goto cleanups;
 	}
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&Easyproc_driver_info,
+	visor_easyproc_DeInitDevice(&easyproc_drv_info,
 				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	devdata_put(devdata, "existence");
-Away:
+cleanups:
 	INFODRV("%s finished", __func__);
 }
 
@@ -265,10 +265,10 @@ static void
 visorvideoclient_cleanup_guts(void)
 {
 	visorbus_unregister_visor_driver(&visorvideoclient_driver);
-	visor_easyproc_DeInitDriver(&Easyproc_driver_info);
-	if (DevNoPool != NULL) {
-		kfree(DevNoPool);
-		DevNoPool = NULL;
+	visor_easyproc_DeInitDriver(&easyproc_drv_info);
+	if (dev_no_pool != NULL) {
+		kfree(dev_no_pool);
+		dev_no_pool = NULL;
 	}
 }
 
@@ -284,20 +284,20 @@ visorvideoclient_init(void)
 	INFODRV("         debugref=%d", visorvideoclient_debugref);
 
 	spin_lock_init(&devnopool_lock);
-	DevNoPool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (DevNoPool == NULL) {
-		ERRDRV("Unable to create DevNoPool");
+	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
+	if (dev_no_pool == NULL) {
+		ERRDRV("Unable to create dev_no_pool");
 		rc = -1;
-		goto Away;
+		goto cleanups;
 	}
-	visor_easyproc_InitDriver(&Easyproc_driver_info,
+	visor_easyproc_InitDriver(&easyproc_drv_info,
 				  MYDRVNAME,
 				  visorvideoclient_show_driver_info,
 				  visorvideoclient_show_device_info);
 	visorbus_register_visor_driver(&visorvideoclient_driver);
 	rc = 0;
 
-Away:
+cleanups:
 	if (rc < 0)
 		visorvideoclient_cleanup_guts();
 	return rc;
@@ -314,7 +314,7 @@ static void
 visorvideoclient_show_device_info(struct seq_file *seq, void *p)
 {
 	struct visorvideoclient_devdata *devdata =
-	    (struct visorvideoclient_devdata *) (p);
+	    (struct visorvideoclient_devdata *)(p);
 	seq_printf(seq, "devno=%d\n", devdata->devno);
 	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
 }
