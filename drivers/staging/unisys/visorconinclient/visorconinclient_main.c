@@ -1,6 +1,6 @@
 /* visorconinclient_main.c
  *
- * Copyright © 2011 - 2013 UNISYS CORPORATION
+ * Copyright (c) 2011 - 2014 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -45,8 +45,8 @@
 #define SYSFS_VIRTUALSIZE "/sys/class/graphics/fb0/virtual_size"
 
 static spinlock_t devnopool_lock;
-static void *DevNoPool; /**< pool to grab device numbers from */
-static struct easyproc_driver_info Easyproc_driver_info;
+static void *dev_no_pool; /**< pool to grab device numbers from */
+static struct easyproc_driver_info;
 
 static int visorconinclient_probe(struct visor_device *dev);
 static void visorconinclient_remove(struct visor_device *dev);
@@ -97,9 +97,9 @@ struct visorconinclient_devdata {
 	int devno;
 	struct visor_device *dev;
 	/** lock for dev */
-	struct rw_semaphore lockVisorDev;
+	struct rw_semaphore lock_visor_dev;
 	char name[99];
-	struct list_head list_all;   /**< link within List_all_devices list */
+	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
 	struct easyproc_device_info procinfo;
 	struct input_dev *visorinput_dev;
@@ -107,10 +107,11 @@ struct visorconinclient_devdata {
 	BOOL supported_client_device;
 	BOOL paused;
 };
+
 /** List of all visorconinclient_devdata structs,
   * linked via the list_all member */
-static LIST_HEAD(List_all_devices);
-static DEFINE_SPINLOCK(Lock_all_devices);
+static LIST_HEAD(list_all_devices);
+static DEFINE_SPINLOCK(lock_all_devices);
 
 #define devdata_put(devdata, why)					\
 	do {								\
@@ -273,22 +274,22 @@ devdata_create(struct visor_device *dev)
 	uuid_le guid;
 
 	guid = visorchannel_get_uuid(dev->visorchannel);
-	devdata = kmalloc(sizeof(struct visorconinclient_devdata),
+	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
 		ERRDRV("allocation of visorconinclient_devdata failed: (status=0)\n");
-		goto Away;
+		goto cleanups;
 	}
 	memset(devdata, '\0', sizeof(struct visorconinclient_devdata));
 	spin_lock(&devnopool_lock);
-	devno = find_first_zero_bit(DevNoPool, MAXDEVICES);
-	set_bit(devno, DevNoPool);
+	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
+	set_bit(devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
 	if (devno == MAXDEVICES)
 		devno = -1;
 	if (devno < 0) {
 		ERRDRV("attempt to create more than MAXDEVICES devices: (status=0)\n");
-		goto Away;
+		goto cleanups;
 	}
 
 	devdata->devno = devno;
@@ -302,36 +303,36 @@ devdata_create(struct visor_device *dev)
 		devdata->visorinput_dev = register_client_keyboard();
 		if (devdata->visorinput_dev == NULL) {
 			ERRDRV("failed to create client keyboard device: (status=0)\n");
-			goto Away;
+			goto cleanups;
 		}
 		devdata->supported_client_device = TRUE;
 	} else if (memcmp(&guid, &MOUGUID, sizeof(guid)) == 0) {
 		devdata->visorinput_dev = register_client_mouse();
 		if (devdata->visorinput_dev == NULL) {
 			ERRDRV("failed to create client mouse device: (status=0)\n");
-			goto Away;
+			goto cleanups;
 		}
 		devdata->visorinput_dev2 = register_client_wheel();
 		if (devdata->visorinput_dev2 == NULL) {
 			ERRDRV("failed to create client wheel device: (status=0)\n");
-			goto Away;
+			goto cleanups;
 		}
 		devdata->supported_client_device = TRUE;
 	}
 
-	init_rwsem(&devdata->lockVisorDev);
+	init_rwsem(&devdata->lock_visor_dev);
 	kref_init(&devdata->kref);
 
-	spin_lock(&Lock_all_devices);
-	list_add_tail(&devdata->list_all, &List_all_devices);
-	spin_unlock(&Lock_all_devices);
+	spin_lock(&lock_all_devices);
+	list_add_tail(&devdata->list_all, &list_all_devices);
+	spin_unlock(&lock_all_devices);
 
 	rc = devdata;
-Away:
+cleanups:
 	if (rc == NULL) {
 		if (devno >= 0) {
 			spin_lock(&devnopool_lock);
-			clear_bit(devno, DevNoPool);
+			clear_bit(devno, dev_no_pool);
 			spin_unlock(&devnopool_lock);
 		}
 		if (devdata != NULL) {
@@ -358,11 +359,11 @@ devdata_release(struct kref *mykref)
 	    container_of(mykref, struct visorconinclient_devdata, kref);
 	INFODRV("%s", __func__);
 	spin_lock(&devnopool_lock);
-	clear_bit(devdata->devno, DevNoPool);
+	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
-	spin_lock(&Lock_all_devices);
+	spin_lock(&lock_all_devices);
 	list_del(&devdata->list_all);
-	spin_unlock(&Lock_all_devices);
+	spin_unlock(&lock_all_devices);
 	INFODRV("%s finished", __func__);
 }
 
@@ -378,23 +379,23 @@ visorconinclient_probe(struct visor_device *dev)
 	devdata = devdata_create(dev);
 	if (devdata == NULL) {
 		rc = -1;
-		goto Away;
+		goto cleanups;
 	}
 	visor_set_drvdata(dev, devdata);
 	guid = visorchannel_get_uuid(dev->visorchannel);
-	if (memcmp(&guid, &MOUGUID, sizeof(guid)) != 0
-	    && memcmp(&guid, &KBDGUID, sizeof(guid)) != 0) {
+	if (memcmp(&guid, &MOUGUID, sizeof(guid)) != 0 &&
+	    memcmp(&guid, &KBDGUID, sizeof(guid)) != 0) {
 		ERRDRV("unrecognized GUID: (status=-1)\n");
 		rc = -1;
-		goto Away;
+		goto cleanups;
 	}
 
-	visor_easyproc_InitDevice(&Easyproc_driver_info,
+	visor_easyproc_InitDevice(&easyproc_driver_info,
 				  &devdata->procinfo, devdata->devno, devdata);
 	if (devdata->supported_client_device)
 		visorbus_enable_channel_interrupts(dev);
 
-Away:
+cleanups:
 	INFODRV("%s finished", __func__);
 	if (rc < 0) {
 		if (devdata != NULL)
@@ -406,10 +407,10 @@ Away:
 static void
 host_side_disappeared(struct visorconinclient_devdata *devdata)
 {
-	down_write(&devdata->lockVisorDev);
+	down_write(&devdata->lock_visor_dev);
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;	/* indicate device destroyed */
-	up_write(&devdata->lockVisorDev);
+	up_write(&devdata->lock_visor_dev);
 }
 
 static void
@@ -420,10 +421,10 @@ visorconinclient_remove(struct visor_device *dev)
 	INFODRV("%s", __func__);
 	if (devdata == NULL) {
 		ERRDRV("no devdata in %s", __func__);
-		goto Away;
+		goto cleanups;
 	}
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&Easyproc_driver_info,
+	visor_easyproc_DeInitDevice(&easyproc_driver_info,
 				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	unregister_client_input(devdata->visorinput_dev);
@@ -431,7 +432,7 @@ visorconinclient_remove(struct visor_device *dev)
 	unregister_client_input(devdata->visorinput_dev2);
 	devdata->visorinput_dev2 = NULL;
 	devdata_put(devdata, "existence");
-Away:
+cleanups:
 	INFODRV("%s finished", __func__);
 }
 
@@ -439,10 +440,10 @@ static void
 visorconinclient_cleanup_guts(void)
 {
 	visorbus_unregister_visor_driver(&visorconinclient_driver);
-	visor_easyproc_DeInitDriver(&Easyproc_driver_info);
-	if (DevNoPool != NULL) {
-		kfree(DevNoPool);
-		DevNoPool = NULL;
+	visor_easyproc_DeInitDriver(&easyproc_driver_info);
+	if (dev_no_pool != NULL) {
+		kfree(dev_no_pool);
+		dev_no_pool = NULL;
 	}
 }
 
@@ -697,8 +698,9 @@ handle_locking_key(struct input_dev *visorinput_dev,
 			do_key(visorinput_dev, keycode, 0);
 			input_sync(visorinput_dev);
 			__change_bit(led, visorinput_dev->led);
-		} else
+		} else {
 			DEBUGDRV("LED %s UNCHANGED(%d)", sled, old_state);
+		}
 	}
 }
 
@@ -753,17 +755,17 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 	if (devdata == NULL) {
 		ERRDEV(dev_name(&dev->device), "no devdata in %s",
 		       __func__);
-		goto Away;
+		goto cleanups;
 	}
-	down_write(&devdata->lockVisorDev);
+	down_write(&devdata->lock_visor_dev);
 	locked = TRUE;
 	if (devdata->paused)
-		goto Away;	/* don't touch device/channel when paused */
+		goto cleanups;	/* don't touch device/channel when paused */
 	visorinput_dev = devdata->visorinput_dev;
 	if (visorinput_dev == NULL) {
 		ERRDEV(dev_name(&dev->device), "no visorinput_dev in %s",
 		       __func__);
-		goto Away;
+		goto cleanups;
 	}
 	visorinput_dev2 = devdata->visorinput_dev2;
 	while (visorchannel_signalremove(dev->visorchannel, 0, &r)) {
@@ -834,7 +836,7 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 				ERRDEV(dev_name(&dev->device),
 				       "no visorinput_dev2 in %s",
 				       __func__);
-				goto Away;
+				goto cleanups;
 			}
 			zmotion = r.activity.arg1;
 			input_report_rel(visorinput_dev2, REL_WHEEL, 1);
@@ -845,7 +847,7 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 				ERRDEV(dev_name(&dev->device),
 				       "no visorinput_dev2 in %s",
 				       __func__);
-				goto Away;
+				goto cleanups;
 			}
 			zmotion = r.activity.arg1;
 			input_report_rel(visorinput_dev2, REL_WHEEL, -1);
@@ -854,9 +856,9 @@ visorconinclient_channel_interrupt(struct visor_device *dev)
 		}
 	}
 
-Away:
+cleanups:
 	if (locked) {
-		up_write(&devdata->lockVisorDev);
+		up_write(&devdata->lock_visor_dev);
 		locked = FALSE;
 	}
 }
@@ -872,23 +874,23 @@ visorconinclient_pause(struct visor_device *dev,
 	if (devdata == NULL) {
 		ERRDEV(dev_name(&dev->device), "no devdata in %s",
 		       __func__);
-		goto Away;
+		goto cleanups;
 	}
-	down_write(&devdata->lockVisorDev);
+	down_write(&devdata->lock_visor_dev);
 	locked = TRUE;
 	if (devdata->paused) {
 		ERRDEV(dev_name(&dev->device),
 		       "already paused, so pause not necessary");
-		goto Away;
+		goto cleanups;
 	}
 	/* SLEEP(5);  // test */
 	devdata->paused = TRUE;
 	INFODEV(dev_name(&dev->device), "paused");
 	complete_func(dev, 0);
 	rc = 0;
-Away:
+cleanups:
 	if (locked) {
-		up_write(&devdata->lockVisorDev);
+		up_write(&devdata->lock_visor_dev);
 		locked = FALSE;
 	}
 	return rc;
@@ -905,22 +907,22 @@ visorconinclient_resume(struct visor_device *dev,
 	if (devdata == NULL) {
 		ERRDEV(dev_name(&dev->device), "no devdata in %s",
 		       __func__);
-		goto Away;
+		goto cleanups;
 	}
-	down_write(&devdata->lockVisorDev);
+	down_write(&devdata->lock_visor_dev);
 	locked = TRUE;
 	if (!devdata->paused) {
 		ERRDEV(dev_name(&dev->device),
 		       "NOT paused, so resume not necessary");
-		goto Away;
+		goto cleanups;
 	}
 	devdata->paused = FALSE;
 	INFODEV(dev_name(&dev->device), "resumed");
 	complete_func(dev, 0);
 	rc = 0;
-Away:
+cleanups:
 	if (locked) {
-		up_write(&devdata->lockVisorDev);
+		up_write(&devdata->lock_visor_dev);
 		locked = FALSE;
 	}
 	return rc;
@@ -938,19 +940,19 @@ visorconinclient_init(void)
 	INFODRV("         debugref=%d", visorconinclient_debugref);
 
 	spin_lock_init(&devnopool_lock);
-	DevNoPool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (DevNoPool == NULL) {
-		ERRDRV("Unable to create DevNoPool");
+	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
+	if (dev_no_pool == NULL) {
+		ERRDRV("Unable to create dev_no_pool");
 		rc = -1;
-		goto Away;
+		goto cleanups;
 	}
-	visor_easyproc_InitDriver(&Easyproc_driver_info,
+	visor_easyproc_InitDriver(&easyproc_driver_info,
 				  MYDRVNAME,
 				  visorconinclient_show_driver_info,
 				  visorconinclient_show_device_info);
 	visorbus_register_visor_driver(&visorconinclient_driver);
 
-Away:
+cleanups:
 	if (rc < 0)
 		visorconinclient_cleanup_guts();
 	return rc;
@@ -967,7 +969,7 @@ static void
 visorconinclient_show_device_info(struct seq_file *seq, void *p)
 {
 	struct visorconinclient_devdata *devdata =
-	    (struct visorconinclient_devdata *) (p);
+	    (struct visorconinclient_devdata *)(p);
 	seq_printf(seq, "devno=%d\n", devdata->devno);
 	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
 }
