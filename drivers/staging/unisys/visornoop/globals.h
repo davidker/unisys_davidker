@@ -1,6 +1,6 @@
 /* globals.h
  *
- * Copyright (c) 2011 - 2013 UNISYS CORPORATION
+ * Copyright (c) 2011 - 2014 UNISYS CORPORATION
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
