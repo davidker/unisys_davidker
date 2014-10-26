@@ -27,7 +27,7 @@
 struct linux_serial;
 
 struct linux_serial *linuxserial_create(int devno, void *context,
-				void (*transmit_char)(void *, u8));
+					void (*transmit_char)(void *, u8));
 void linuxserial_rx_char(struct linux_serial *ls, u8 c);
 void linuxserial_destroy(struct linux_serial *ls);
 
