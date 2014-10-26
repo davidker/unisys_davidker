@@ -103,7 +103,8 @@ lxcon_console_setup(struct console *co, char *options)
 
 	if (!options) {
 		if (visorserial_channeladdress != 0)
-			goto cleanups; /* channeladdress supplied on module load */
+			goto cleanups; /* channeladdress supplied
+					 on module load */
 		pr_info("%s - channel address must be specified!\n",
 			__func__);
 		rc = -ENODEV;
