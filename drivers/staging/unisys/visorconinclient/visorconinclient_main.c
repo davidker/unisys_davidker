@@ -29,9 +29,8 @@
 #include "visorchannel.h"
 #include "keyboardchannel.h"
 #include "mousechannel.h"
-#include "easyproc.h"
-#define KBDGUID UltraKeyboardChannelProtocolGuid
-#define MOUGUID UltraMouseChannelProtocolGuid
+#define KBDUUID spar_keyboard_channel_protocol_uuid
+#define MOUGUID spar_mouse_channel_protocol_uuid
 #include <linux/input.h>
 #include <linux/serio.h>
 #include <linux/fs.h>
@@ -46,7 +45,6 @@
 
 static spinlock_t devnopool_lock;
 static void *dev_no_pool; /**< pool to grab device numbers from */
-static struct easyproc_driver_info;
 
 static int visorconinclient_probe(struct visor_device *dev);
 static void visorconinclient_remove(struct visor_device *dev);
@@ -59,15 +57,13 @@ static struct input_dev *register_client_keyboard(void);
 static struct input_dev *register_client_mouse(void);
 static struct input_dev *register_client_wheel(void);
 static void unregister_client_input(struct input_dev *visorinput_dev);
-static void visorconinclient_show_device_info(struct seq_file *seq, void *p);
-static void visorconinclient_show_driver_info(struct seq_file *seq);
 
 /**  GUIDS for all channel types supported by this driver.
  */
 static struct visor_channeltype_descriptor visorconinclient_channel_types[] = {
-	{ULTRA_KEYBOARD_CHANNEL_PROTOCOL_GUID, "keyboard",
+	{SPAR_KEYBOARD_CHANNEL_PROTOCOL_UUID, "keyboard",
 	 KEYBOARD_CH_SIZE, KEYBOARD_CH_SIZE},
-	{ULTRA_MOUSE_CHANNEL_PROTOCOL_GUID, "mouse",
+	{SPAR_MOUSE_CHANNEL_PROTOCOL_UUID, "mouse",
 	 MOUSE_CH_SIZE, MOUSE_CH_SIZE},
 	{ NULL_UUID_LE, NULL, 0, 0}
 };
@@ -101,7 +97,6 @@ struct visorconinclient_devdata {
 	char name[99];
 	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
-	struct easyproc_device_info procinfo;
 	struct input_dev *visorinput_dev;
 	struct input_dev *visorinput_dev2;
 	BOOL supported_client_device;
@@ -299,7 +294,7 @@ devdata_create(struct visor_device *dev)
 	/* This is an input device in a client guest partition,
 	 * so we need to create whatever gizmos are necessary to
 	 * deliver our inputs to the guest OS. */
-	if (memcmp(&guid, &KBDGUID, sizeof(guid)) == 0) {
+	if (memcmp(&guid, &KBDUUID, sizeof(guid)) == 0) {
 		devdata->visorinput_dev = register_client_keyboard();
 		if (devdata->visorinput_dev == NULL) {
 			ERRDRV("failed to create client keyboard device: (status=0)\n");
@@ -384,14 +379,12 @@ visorconinclient_probe(struct visor_device *dev)
 	visor_set_drvdata(dev, devdata);
 	guid = visorchannel_get_uuid(dev->visorchannel);
 	if (memcmp(&guid, &MOUGUID, sizeof(guid)) != 0 &&
-	    memcmp(&guid, &KBDGUID, sizeof(guid)) != 0) {
+	    memcmp(&guid, &KBDUUID, sizeof(guid)) != 0) {
 		ERRDRV("unrecognized GUID: (status=-1)\n");
 		rc = -1;
 		goto cleanups;
 	}
 
-	visor_easyproc_InitDevice(&easyproc_driver_info,
-				  &devdata->procinfo, devdata->devno, devdata);
 	if (devdata->supported_client_device)
 		visorbus_enable_channel_interrupts(dev);
 
@@ -424,8 +417,6 @@ visorconinclient_remove(struct visor_device *dev)
 		goto cleanups;
 	}
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&easyproc_driver_info,
-				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	unregister_client_input(devdata->visorinput_dev);
 	devdata->visorinput_dev = NULL;
@@ -440,7 +431,6 @@ static void
 visorconinclient_cleanup_guts(void)
 {
 	visorbus_unregister_visor_driver(&visorconinclient_driver);
-	visor_easyproc_DeInitDriver(&easyproc_driver_info);
 	if (dev_no_pool != NULL) {
 		kfree(dev_no_pool);
 		dev_no_pool = NULL;
@@ -946,10 +936,6 @@ visorconinclient_init(void)
 		rc = -1;
 		goto cleanups;
 	}
-	visor_easyproc_InitDriver(&easyproc_driver_info,
-				  MYDRVNAME,
-				  visorconinclient_show_driver_info,
-				  visorconinclient_show_device_info);
 	visorbus_register_visor_driver(&visorconinclient_driver);
 
 cleanups:
@@ -963,21 +949,6 @@ visorconinclient_cleanup(void)
 {
 	visorconinclient_cleanup_guts();
 	INFODRV("driver unloaded");
-}
-
-static void
-visorconinclient_show_device_info(struct seq_file *seq, void *p)
-{
-	struct visorconinclient_devdata *devdata =
-	    (struct visorconinclient_devdata *)(p);
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-}
-
-static void
-visorconinclient_show_driver_info(struct seq_file *seq)
-{
-	seq_printf(seq, "Version=%s\n", VERSION);
 }
 
 module_param_named(debug, visorconinclient_debug, int, S_IRUGO);
