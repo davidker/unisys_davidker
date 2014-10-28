@@ -22,45 +22,32 @@
 #include "channel.h"
 
 /* {F2DB76C2-1C43-4f24-A5DA-A28EE66A7480} */
-#define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_GUID	\
+#define SPAR_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_UUID	\
 	UUID_LE(0xf2db76c2, 0x1c43, 0x4f24,				\
 		0xa5, 0xda, 0xa2, 0x8e, 0xe6, 0x6a, 0x74, 0x80)
 
-static const uuid_le UltraConsoleFrameBufferMemoryChannelProtocolGuid =
-	ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_GUID;
+static const uuid_le spar_console_framebuffer_memory_channel_protocol_uuid =
+	SPAR_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_UUID;
 
-#define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_SIGNATURE \
-	ULTRA_CHANNEL_PROTOCOL_SIGNATURE
+#define SPAR_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_SIGNATURE \
+	SPAR_CHANNEL_PROTOCOL_SIGNATURE
 /* Must increment this whenever you insert or delete fields within
 * this channel struct.  Also increment whenever you change the meaning
 * of fields within this channel struct so as to break pre-existing
 * software.  Note that you can usually add fields to the END of the
 * channel struct withOUT needing to increment this. */
-#define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_VERSIONID 1
-
-#define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_OK_CLIENT(pChannel, logCtx) \
-	(ULTRA_check_channel_client((pChannel), \
-		UltraConsoleFramebufferMemoryChannelProtocolGuid, \
-		"consoleframebuffermemory",		\
-		sizeof(ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL), \
-		ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_VERSIONID, \
-		ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_SIGNATURE, \
-		__FILE__, __LINE__, logCtx))
-#define ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_OK_SERVER(actualBytes, logCtx) \
-	(ULTRA_check_channel_server(UltraConsoleFramebufferMemoryChannelProtocolGuid, \
-		"consoleframebuffermemory",		\
-		sizeof(ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL), \
-		actualBytes, __FILE__, __LINE__, logCtx))
+#define SPAR_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL_VERSIONID 1
 
 #pragma pack(push, 1)		/* both GCC and VC now allow this pragma */
-typedef struct _ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL {
-	struct channel_header Header;
-	u8 FrameBuffer[1024 * 1024 * 3]; /* frame buffer big enough
+struct spar_consoleframebuffermemory_channel_protocol {
+	struct channel_header header;
+	u8 framebuffer[1024 * 1024 * 3]; /* frame buffer big enough
 					  * for 1024x768x32 */
-} ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL;
+};
 
 #define CONSOLEFRAMEBUFFERMEMORY_CH_SIZE \
-	COVER(sizeof(ULTRA_CONSOLEFRAMEBUFFERMEMORY_CHANNEL_PROTOCOL), 65536)
+	COVER(sizeof(struct spar_consoleframebuffermemory_channel_protocol), \
+	      65536)
 #pragma pack(pop)
 
 #endif
