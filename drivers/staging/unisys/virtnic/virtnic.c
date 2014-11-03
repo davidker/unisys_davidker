@@ -442,7 +442,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	spin_lock_init(&vnicinfo->datachan.chinfo.insertlock);
 	vnicinfo->enabled = 0;	/* not yet */
 	atomic_set(&vnicinfo->usage, 1);	/* starting val */
-	vnicinfo->zoneguid = virtpcidev->net.zoneGuid;
+	vnicinfo->zoneguid = virtpcidev->net.zone_uuid;
 	vnicinfo->num_rcv_bufs = virtpcidev->net.num_rcv_bufs;
 	LOGINFNAME(vnicinfo->netdev, "num_rcv_bufs =  %d\n",
 		   vnicinfo->num_rcv_bufs);
@@ -607,7 +607,7 @@ virtnic_remove(struct virtpci_dev *virtpcidev)
 		   virtpcidev, netdev, netdev->name, vnicinfo);
 	LOGINFNAME(vnicinfo->netdev,
 		   "virtpcidev busNo<<%d>>devNo<<%d>>",
-		   virtpcidev->busNo, virtpcidev->deviceNo);
+		   virtpcidev->bus_no, virtpcidev->device_no);
 	/* REMOVE netdev */
 	DBGINF("unregistering netdev\n");
 	if (vnicinfo->interrupt_vector != -1)
@@ -1959,8 +1959,8 @@ virtnic_serverdown_complete(struct work_struct *work)
 
 	vnicinfo->server_down = true;
 	vnicinfo->server_change_state = false;
-	visorchipset_device_pause_response(virtpcidev->busNo,
-					   virtpcidev->deviceNo, 0);
+	visorchipset_device_pause_response(virtpcidev->bus_no,
+					   virtpcidev->device_no, 0);
 }
 
 /* As per VirtpciFunc returns 1 for success and 0 for failure */
