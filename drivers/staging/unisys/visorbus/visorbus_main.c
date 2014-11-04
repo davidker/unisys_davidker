@@ -247,7 +247,8 @@ register_bustype_attributes(void)
 
 	rc = bus_create_file(&visorbus_type, &bustype_attr_version);
 	if (rc < 0) {
-		ERRDRV("bus_create_file(&Visorbus_type, &bustype_attr_version) failed: (status=%d)\n", rc);
+		ERRDRV("bus_create_file(&Visorbus_type, &bustype_attr_version) failed: (status=%d)\n",
+		       rc);
 		goto away;
 	}
 	/* Here we make up for the fact that bus_type does not yet have a
@@ -1358,9 +1359,8 @@ create_bus_instance(int id)
 							    );
 					write_vbus_bus_info(devdata->chan,
 							&devdata->
-							vbus_hdr_info,
-							&clientbus_driverinfo
-							);
+								vbus_hdr_info,
+							&clientbus_driverinfo);
 				}
 			}
 		}
