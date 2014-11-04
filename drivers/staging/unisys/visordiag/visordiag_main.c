@@ -39,7 +39,6 @@ static int visordiag_debugref;
 
 static spinlock_t devnopool_lock;
 static void *dev_no_pool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info diag_easyproc_driver_info;
 static enum {
 	SPTYPE_UNDECIDED,
 	SPTYPE_GENERIC,
@@ -231,18 +230,10 @@ visordiag_release_severityfilter(char *filter)
 }
 EXPORT_SYMBOL_GPL(visordiag_release_severityfilter);
 
-static void set_severity_filter(u64 subsystem_mask, u8 filter,
-				u8 __iomem *all_filters);
-static void new_message_to_host(void *context, 
+static void new_message_to_host(void *context,
 				struct diag_channel_event *event);
 static void destroy_file(struct visordiag_filedata *filedata);
 static void host_side_disappeared(struct visordiag_devdata *devdata);
-static void visordiag_show_device_info(struct seq_file *seq, void *p);
-static void visordiag_show_driver_info(struct seq_file *seq);
-static void visordiag_show_cause_filters(struct seq_file *seq, void *p);
-static void visordiag_show_channel_slots_avail(struct seq_file *seq, void *p);
-static void visordiag_show_channel_max_slots(struct seq_file *seq, void *p);
-static void visordiag_show_severity_filters(struct seq_file *seq, void *p);
 static void visordiag_online(struct visordiag_devdata *devdata);
 static void visordiag_offline(struct visordiag_devdata *devdata);
 static void free_char_devices(struct visordiag_devdata *devdata);
@@ -550,22 +541,6 @@ visordiag_probe(struct visor_device *dev)
 		rc = -1;
 		goto away;
 	}
-	visor_easyproc_InitDevice(&diag_easyproc_driver_info,
-				  &devdata->procinfo, devdata->devno, devdata);
-
-	/* create custom properites under /proc/visordiag/device/0/ */
-	visor_easyproc_CreateDeviceProperty(&devdata->procinfo,
-					    visordiag_show_severity_filters,
-					    "severityfilters");
-	visor_easyproc_CreateDeviceProperty(&devdata->procinfo,
-					    visordiag_show_channel_slots_avail,
-					    "channel_slots_avail");
-	visor_easyproc_CreateDeviceProperty(&devdata->procinfo,
-					    visordiag_show_channel_max_slots,
-					    "channel_max_slots");
-	visor_easyproc_CreateDeviceProperty(&devdata->procinfo,
-					    visordiag_show_cause_filters,
-					    "causefilters");
 	visordiag_online(devdata);
 
 away:
@@ -590,8 +565,6 @@ visordiag_remove(struct visor_device *dev)
 	visordiag_offline(devdata);
 	unregister_device_attributes(dev);
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&diag_easyproc_driver_info,
-				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	kref_put(&devdata->kref, devdata_release);
 
@@ -702,39 +675,10 @@ visordiag_cleanup_guts(void)
 		standalone_device = NULL;
 	}
 	bus_unregister(&simplebus_type);
-	visor_easyproc_DeInitDriver(&diag_easyproc_driver_info);
 	if (dev_no_pool != NULL) {
 		kfree(dev_no_pool);
 		dev_no_pool = NULL;
 	}
-}
-
-/* This is called when you write to /proc/spardump/device/0/diag. */
-static void
-visordiag_process_device_diag_command(char *buf, size_t count,
-				      loff_t *ppos, void *p)
-{
-	struct visordiag_devdata *devdata = (struct visordiag_devdata *)(p);
-	char s[99];
-	size_t i;
-	unsigned int filter = 0;
-	unsigned long long subsystem_mask = 0;
-
-	if (count >= sizeof(s))
-		return;
-	for (i = 0; i < count; i++) {
-		if (buf[i] == '\n' || buf[i] == '\r')
-			break;
-		s[i] = buf[i];
-	}
-	s[i] = '\0';
-	/* Note: "%i" means "0x" will precede iff the value is in hex */
-	if (sscanf(s, "setfilter %lli %i", &subsystem_mask, &filter) == 2)
-		set_severity_filter(subsystem_mask, (u8)filter,
-				    devdata->diag_channel_header->
-				    subsystem_severity_filter);
-	else
-		pr_info("Usage: setfilter <subsystem_mask> <severity_filter>\n");
 }
 
 static int __init
@@ -757,12 +701,6 @@ visordiag_init(void)
 		ERRDRV("Unable to create dev_no_pool");
 		goto away;
 	}
-	visor_easyproc_InitDriverEx(&diag_easyproc_driver_info,
-				    MYDRVNAME,
-				    visordiag_show_driver_info,
-				    visordiag_show_device_info,
-				    NULL,
-				    visordiag_process_device_diag_command);
 	rc = bus_register(&simplebus_type);
 	if (rc < 0) {
 		ERRDRV("bus_register(&simplebus_type) failed: (status=%d)\n",
@@ -1490,7 +1428,7 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	if (count > sizeof(event.additional_info)) {
 		ERRDEV(devdata->name,
 		       "%s failed. Num of chars (%d) exceeded limit of %d.\n",
-		       __func__, (int)count, 
+		       __func__, (int)count,
 		       (int)sizeof(event.additional_info));
 		rc = -EFAULT;
 		goto away;
@@ -1571,128 +1509,6 @@ away:
 		filedata->offset += rc;
 	DEBUGDEV(devdata->name, "%s wrote %d", __func__, rc);
 	return rc;
-}
-
-static void
-set_severity_filter(u64 subsystem_mask, u8 filter, u8 __iomem *all_filters)
-{
-	int i;
-
-	for (i = 0; i < 64; i++) {
-		if (subsystem_mask & (1ULL << i))
-			writeb(filter, &all_filters[i]);
-	}
-}
-
-static void
-visordiag_show_device_info(struct seq_file *seq, void *p)
-{
-	struct visordiag_devdata *devdata = (struct visordiag_devdata *)(p);
-	int i = 0;
-
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "bus name = '%s'\n", devdata->name);
-	seq_printf(seq, "eventsSent=%llu\n",
-		   devdata->counter.host_messages_out);
-	seq_printf(seq, "eventsDropped=%llu\n",
-		   devdata->counter.host_messages_out_failed);
-	seq_printf(seq, "umode_bytes_in=%llu\n",
-		   devdata->counter.umode_bytes_in);
-	if (devdata->dev == NULL || devdata->dev->visorchannel == NULL)
-		return;
-	visorchannel_debug(devdata->dev->visorchannel, 1, seq, 0);
-	seq_puts(seq, "SubsystemSeverityFilter (for subsystems 0..31):\n");
-	seq_puts(seq, "  0x ");
-	for (i = 0; i < 32; i++)
-		seq_printf(seq, "%-2.2x ",
-			   readb(&devdata->diag_channel_header->
-				 subsystem_severity_filter[i]));
-	seq_puts(seq, "\n");
-	seq_puts(seq, "SubsystemSeverityFilter (for subsystems 32..63):\n");
-	seq_puts(seq, "  0x ");
-	for (i = 32; i < 64; i++)
-		seq_printf(seq, "%-2.2x ",
-			   readb(&devdata->diag_channel_header->
-				 subsystem_severity_filter[i]));
-	seq_puts(seq, "\n");
-}
-
-static void
-visordiag_show_filter(struct seq_file *seq, void *p, int subsys,
-		      int mask, int shift)
-{
-	struct visordiag_devdata *devdata = (struct visordiag_devdata *)(p);
-
-	if (devdata->dev == NULL || devdata->dev->visorchannel == NULL ||
-	    devdata->diag_channel_header == NULL)
-		return;
-	seq_printf(seq, "%d:%d\n",
-		   subsys,
-		   (readb(&devdata->diag_channel_header->
-			  subsystem_severity_filter[subsys]) & mask) >> shift);
-}
-
-/* /proc/visordiag/device/0/channel_slots_avail
- * Output is formatted so as to be convenient for parsing in a shell script.
- */
-static void
-visordiag_show_channel_slots_avail(struct seq_file *seq, void *p)
-{
-	int slots_avail;
-	struct visordiag_devdata *devdata = (struct visordiag_devdata *)(p);
-
-	slots_avail =
-	    visorchannel_signalqueue_slots_avail(devdata->dev->visorchannel,
-						 devdata->xmitqueue);
-	seq_printf(seq, "%d\n", slots_avail);
-}
-
-/* /proc/visordiag/device/0/channel_max_slots
- * Output is formatted so as to be convenient for parsing in a shell script.
- */
-static void
-visordiag_show_channel_max_slots(struct seq_file *seq, void *p)
-{
-	int max_slots;
-	struct visordiag_devdata *devdata = (struct visordiag_devdata *)(p);
-
-	max_slots =
-	    visorchannel_signalqueue_max_slots(devdata->dev->visorchannel,
-					       devdata->xmitqueue);
-	seq_printf(seq, "%d\n", max_slots);
-}
-
-/* /proc/visordiag/device/0/causefilters
- * Output is formatted so as to be convenient for parsing in a shell script.
- */
-static void
-visordiag_show_cause_filters(struct seq_file *seq, void *p)
-{
-	int subsys;
-
-	for (subsys = 0; subsys < 64; subsys++)
-		visordiag_show_filter(seq, p, subsys,
-				      CAUSE_FILTER_MASK,
-				      CAUSE_FILTER_SHIFT_AMT);
-}
-
-/* /proc/visordiag/device/0/severityfilters
- * Output is formatted so as to be convenient for parsing in a shell script.
- */
-static void
-visordiag_show_severity_filters(struct seq_file *seq, void *p)
-{
-	int subsys;
-
-	for (subsys = 0; subsys < 64; subsys++)
-		visordiag_show_filter(seq, p, subsys, SEVERITY_FILTER_MASK, 0);
-}
-
-static void
-visordiag_show_driver_info(struct seq_file *seq)
-{
-	seq_printf(seq, "Version=%s\n", VERSION);
-	seq_printf(seq, "    sp_type=%s\n", sptype_to_s(sp_type));
 }
 
 static int
