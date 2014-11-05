@@ -40,7 +40,6 @@ static dev_t major_dev = -1;
 				/**< indicates major num for devices */
 static spinlock_t devnopool_lock;
 static void *devnopool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info sparstop_easyproc_driver_info;
 
 static int
 simplebus_uevent(struct device *xdev, struct kobj_uevent_env *env)
@@ -169,17 +168,12 @@ struct sparstop_filedata {
 	struct list_head list_all;
 };
 
-static void sparstop_show_device_info(struct seq_file *seq, void *p);
-static void sparstop_show_driver_info(struct seq_file *seq);
 static BOOL transition_state_guts(struct sparstop_devdata *devdata,
 				  enum sparstop_state old_state,
 				  enum sparstop_state new_state,
 				  char *filename,
 				  int lineno);
-static void test_initiate(void);
 static void remove_stop_device(struct device *dev);
-static void sparstop_process_driver_diag_command(char *buf, size_t count,
-						 loff_t *ppos);
 
 /*  DEVICE attributes
  *
@@ -542,8 +536,6 @@ remove_stop_device(struct device *dev)
 	INFODRV("%s:About to do dev_set_drvdata", __func__);
 	dev_set_drvdata(dev, NULL);
 	INFODRV("%s:About to do easyproc_DeInitDevice ", __func__);
-	visor_easyproc_DeInitDevice(&sparstop_easyproc_driver_info,
-				    &devdata->procinfo, devdata->devno);
 
 	/* Note that it is still possible to have files open to this device
 	 * right now.  If this is the case, the reference counts for devdata
@@ -639,8 +631,6 @@ add_stop_device(void)
 	 */
 	devdata_get(devdata);
 	devdata_bumped = TRUE;
-	visor_easyproc_InitDevice(&sparstop_easyproc_driver_info,
-				  &devdata->procinfo, devdata->devno, devdata);
 
 	/* This is where the KOBJ_ADD hotplug event happens */
 	if (device_add(dev) < 0) {
@@ -686,7 +676,6 @@ sparstop_cleanup_guts(void)
 		standalone_device = NULL;
 	}
 	bus_unregister(&simplebus_type);
-	visor_easyproc_DeInitDriver(&sparstop_easyproc_driver_info);
 	if (MAJOR(major_dev) >= 0) {
 		unregister_chrdev_region(major_dev, MAXDEVICES);
 		major_dev = MKDEV(0, 0);
@@ -739,11 +728,6 @@ sparstop_init(void)
 		ERRDRV("Unable to register char device %s", MYDRVNAME);
 		goto cleanup;
 	}
-	visor_easyproc_InitDriverEx(&sparstop_easyproc_driver_info,
-				    MYDRVNAME,
-				    sparstop_show_driver_info,
-				    sparstop_show_device_info,
-				    sparstop_process_driver_diag_command, NULL);
 	rc = bus_register(&simplebus_type);
 	if (rc < 0) {
 		ERRDRV("allocation of sparstop_devdata failed: (status=%d)\n",
@@ -791,24 +775,6 @@ cleanup:
 }
 EXPORT_SYMBOL_GPL(sp_stop);
 
-#ifdef INCLUDE_TEST_INTERFACE
-
-static void
-test_stop_complete_func(void *context, int status)
-{
-	INFODRV("%s called with context=%p, status=%d",
-		__func__, context, status);
-}
-
-static void
-test_initiate(void)
-{
-	INFODRV("%s sp_stop returned %d",
-		__func__, sp_stop(NULL, &test_stop_complete_func));
-}
-
-#endif
-
 void
 test_remove_stop_device(void)
 {
@@ -818,50 +784,6 @@ test_remove_stop_device(void)
 	}
 }
 EXPORT_SYMBOL_GPL(test_remove_stop_device);
-
-/* This is called when you read /proc/sparstop/device/<n>/diag. */
-static void
-sparstop_show_device_info(struct seq_file *seq, void *p)
-{
-	struct sparstop_devdata *devdata = (struct sparstop_devdata *)(p);
-
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "bus name = '%s'\n", devdata->name);
-	seq_printf(seq, "state = %s(%d)\n",
-		   state_str(devdata->state), devdata->state);
-}
-
-/* This is called when you read /proc/sparstop/driver/diag. */
-static void
-sparstop_show_driver_info(struct seq_file *seq)
-{
-	seq_printf(seq, "Version=%s\n", VERSION);
-}
-
-/* This is called when you write to /proc/sparstop/driver/diag. */
-static void
-sparstop_process_driver_diag_command(char *buf, size_t count, loff_t *ppos)
-{
-#ifdef INCLUDE_TEST_INTERFACE
-	char s[99];
-	size_t i;
-
-	if (count >= sizeof(s))
-		return;
-	for (i = 0; i < count; i++) {
-		if (buf[i] == '\n' || buf[i] == '\r')
-			break;
-		s[i] = buf[i];
-	}
-	s[i] = '\0';
-	if (strcmp(s, "initiate") == 0) {
-		test_initiate();
-	} else {
-		ERRDRV("%s unrecognized string %s", __func__, s);
-		return;
-	}
-#endif
-}
 
 module_param_named(major, sparstop_major, int, S_IRUGO);
 MODULE_PARM_DESC(sparstop_major, "major device number for the sparstop device");
