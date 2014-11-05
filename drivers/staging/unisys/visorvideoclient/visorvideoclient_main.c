@@ -37,7 +37,6 @@
 
 static spinlock_t devnopool_lock;
 static void *dev_no_pool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info easyproc_drv_info;
 
 static int visorvideoclient_probe(struct visor_device *dev);
 static void visorvideoclient_remove(struct visor_device *dev);
@@ -45,8 +44,6 @@ static int visorvideoclient_pause(struct visor_device *dev,
 				  VISORBUS_STATE_COMPLETE_FUNC complete_func);
 static int visorvideoclient_resume(struct visor_device *dev,
 				   VISORBUS_STATE_COMPLETE_FUNC complete_func);
-static void visorvideoclient_show_device_info(struct seq_file *seq, void *p);
-static void visorvideoclient_show_driver_info(struct seq_file *seq);
 
 /**  GUIDS for all channel types supported by this driver.
  */
@@ -202,8 +199,6 @@ visorvideoclient_probe(struct visor_device *dev)
 		goto cleanups;
 	}
 	visor_set_drvdata(dev, devdata);
-	visor_easyproc_InitDevice(&easyproc_drv_info,
-				  &devdata->procinfo, devdata->devno, devdata);
 	rc = 0;
 
 cleanups:
@@ -235,8 +230,6 @@ visorvideoclient_remove(struct visor_device *dev)
 		goto cleanups;
 	}
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&easyproc_drv_info,
-				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 	devdata_put(devdata, "existence");
 cleanups:
@@ -265,7 +258,6 @@ static void
 visorvideoclient_cleanup_guts(void)
 {
 	visorbus_unregister_visor_driver(&visorvideoclient_driver);
-	visor_easyproc_DeInitDriver(&easyproc_drv_info);
 	if (dev_no_pool != NULL) {
 		kfree(dev_no_pool);
 		dev_no_pool = NULL;
@@ -290,10 +282,6 @@ visorvideoclient_init(void)
 		rc = -1;
 		goto cleanups;
 	}
-	visor_easyproc_InitDriver(&easyproc_drv_info,
-				  MYDRVNAME,
-				  visorvideoclient_show_driver_info,
-				  visorvideoclient_show_device_info);
 	visorbus_register_visor_driver(&visorvideoclient_driver);
 	rc = 0;
 
@@ -308,21 +296,6 @@ visorvideoclient_cleanup(void)
 {
 	visorvideoclient_cleanup_guts();
 	INFODRV("driver unloaded");
-}
-
-static void
-visorvideoclient_show_device_info(struct seq_file *seq, void *p)
-{
-	struct visorvideoclient_devdata *devdata =
-	    (struct visorvideoclient_devdata *)(p);
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-}
-
-static void
-visorvideoclient_show_driver_info(struct seq_file *seq)
-{
-	seq_printf(seq, "Version=%s\n", VERSION);
 }
 
 module_param_named(debug, visorvideoclient_debug, int, S_IRUGO);
