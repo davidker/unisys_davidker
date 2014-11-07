@@ -100,7 +100,7 @@ static int chipset_get_channel_info(uuid_le type_guid, ulong *min_size,
 /** These functions are implemented herein, and are called by the chipset
  *  driver to notify us about specific events.
  */
-static VISORCHIPSET_BUSDEV_NOTIFIERS chipset_notifiers = {
+static struct visorchipset_busdev_notifiers chipset_notifiers = {
 	.bus_create = chipset_bus_create,
 	.bus_destroy = chipset_bus_destroy,
 	.device_create = chipset_device_create,
@@ -113,7 +113,7 @@ static VISORCHIPSET_BUSDEV_NOTIFIERS chipset_notifiers = {
 /** These functions are implemented in the chipset driver, and we call them
  *  herein when we want to acknowledge a specific event.
  */
-static VISORCHIPSET_BUSDEV_RESPONDERS chipset_responders;
+static struct visorchipset_busdev_responders chipset_responders;
 
 /* filled in with info about parent chipset driver when we register with it */
 static struct ultra_vbus_deviceinfo chipset_driverinfo;
@@ -290,30 +290,30 @@ unregister_bustype_attributes(void)
 
 static ssize_t businst_attr_partition_handle(struct visorbus_devdata *businst,
 					     char *buf) {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	int len = 0;
 
 	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE,
 			       "0x%Lx\n",
-			       (unsigned long long)bus_info.partitionHandle);
+			       (unsigned long long)bus_info.partition_handle);
 	return len;
 }
 
 static ssize_t businst_attr_partition_guid(struct visorbus_devdata *businst,
 					   char *buf) {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	int len = 0;
 
 	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE, "{%pUb}\n",
-			       &bus_info.partitionGuid);
+			       &bus_info.partition_uuid);
 	return len;
 }
 
 static ssize_t businst_attr_partition_name(struct visorbus_devdata *businst,
 					   char *buf) {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	int len = 0;
 
 	if (businst &&
@@ -325,23 +325,23 @@ static ssize_t businst_attr_partition_name(struct visorbus_devdata *businst,
 
 static ssize_t businst_attr_channel_addr(struct visorbus_devdata *businst,
 					 char *buf) {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	int len = 0;
 
 	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE, "0x%Lx\n", (unsigned long long)
-			       bus_info.chanInfo.channelAddr);
+			       bus_info.chan_info.channel_addr);
 	return len;
 }
 
 static ssize_t businst_attr_nchannel_bytes(struct visorbus_devdata *businst,
 					   char *buf) {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	int len = 0;
 
 	if (businst && visorchipset_get_bus_info(businst->devno, &bus_info))
 		len = snprintf(buf, PAGE_SIZE, "0x%Lx\n", (unsigned long long)
-			       bus_info.chanInfo.nChannelBytes);
+			       bus_info.chan_info.n_channel_bytes);
 	return len;
 }
 
@@ -359,7 +359,7 @@ static ssize_t businst_attr_channel_id(struct visorbus_devdata *businst,
 
 static ssize_t businst_attr_client_bus_info(struct visorbus_devdata *businst,
 					    char *buf) {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	int i, x, remain = PAGE_SIZE;
 	ulong off;
 	char *p = buf;
@@ -861,7 +861,8 @@ EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 static int
 create_visor_device(struct visorbus_devdata *devdata,
 		    ulong chipset_bus_no, ulong chipset_dev_no,
-		    VISORCHIPSET_CHANNEL_INFO chanInfo, u64 partition_handle)
+		    struct visorchipset_channel_info chan_info,
+		    u64 partition_handle)
 {
 	int rc = -1;
 	VISORCHANNEL *visorchannel = NULL;
@@ -873,15 +874,15 @@ create_visor_device(struct visorbus_devdata *devdata,
 			 POSTCODE_SEVERITY_INFO);
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	INFODRV("Channel discovered (addr=0x%-16.16llx, size=%llu)",
-		(unsigned long long)chanInfo.channelAddr,
-		(unsigned long long)chanInfo.nChannelBytes);
-	visorchannel = visorchannel_create(chanInfo.channelAddr,
-					   (ulong)chanInfo.nChannelBytes,
-					   chanInfo.channelTypeGuid);
+		(unsigned long long)chan_info.channel_addr,
+		(unsigned long long)chan_info.n_channel_bytes);
+	visorchannel = visorchannel_create(chan_info.channel_addr,
+					   (ulong)chan_info.n_channel_bytes,
+					   chan_info.channel_type_uuid);
 	if (visorchannel == NULL) {
 		ERRDRV("channel addr = 0x%-16.16llx, size = %llu",
-		       (unsigned long long)chanInfo.channelAddr,
-		       (unsigned long long)chanInfo.nChannelBytes);
+		       (unsigned long long)chan_info.channel_addr,
+		       (unsigned long long)chan_info.n_channel_bytes);
 
 		ERRDRV("visorchannel_create failed: (status = -1)\n");
 		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
@@ -890,8 +891,8 @@ create_visor_device(struct visorbus_devdata *devdata,
 	}
 	INFODRV("Channel %s connected (addr=0x%-16.16llx, size=%llu)",
 		visorchannel_id(visorchannel, s),
-		(unsigned long long)chanInfo.channelAddr,
-		(unsigned long long)chanInfo.nChannelBytes);
+		(unsigned long long)chan_info.channel_addr,
+		(unsigned long long)chan_info.n_channel_bytes);
 
 	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
@@ -903,8 +904,8 @@ create_visor_device(struct visorbus_devdata *devdata,
 
 	memset(dev, 0, sizeof(struct visor_device));
 	dev->visorchannel = visorchannel;
-	dev->channel_type_guid = chanInfo.channelTypeGuid;
-	dev->channel_bytes = chanInfo.nChannelBytes;
+	dev->channel_type_guid = chan_info.channel_type_uuid;
+	dev->channel_bytes = chan_info.n_channel_bytes;
 	dev->chipset_bus_no = chipset_bus_no;
 	dev->chipset_dev_no = chipset_dev_no;
 	dev->device.parent = devdata->dev;
@@ -1217,7 +1218,7 @@ static void
 fix_vbus_dev_info(struct visor_device *visordev)
 {
 	int i;
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	struct visorbus_devdata *devdata = NULL;
 	struct visor_driver *visordrv;
 	int bus_no = visordev->chipset_bus_no;
@@ -1286,7 +1287,7 @@ create_bus_instance(int id)
 	struct visorbus_devdata *rc = NULL;
 	struct visorbus_devdata *devdata = NULL;
 	struct device *dev;
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	char s[99];
 
 	POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC, POSTCODE_SEVERITY_INFO);
@@ -1320,34 +1321,36 @@ create_bus_instance(int id)
 	devdata->devno = id;
 	devdata->dev = dev;
 	if ((visorchipset_get_bus_info(id, &bus_info)) &&
-	    (bus_info.chanInfo.channelAddr > 0) &&
-	    (bus_info.chanInfo.nChannelBytes > 0)) {
-		HOSTADDRESS channelAddr = bus_info.chanInfo.channelAddr;
-		ulong nChannelBytes = (ulong)bus_info.chanInfo.nChannelBytes;
-		uuid_le channel_type_guid = bus_info.chanInfo.channelTypeGuid;
+	    (bus_info.chan_info.channel_addr > 0) &&
+	    (bus_info.chan_info.n_channel_bytes > 0)) {
+		HOSTADDRESS channel_addr = bus_info.chan_info.channel_addr;
+		ulong n_channel_bytes =
+				(ulong)bus_info.chan_info.n_channel_bytes;
+		uuid_le channel_type_guid =
+				bus_info.chan_info.channel_type_uuid;
 
-		devdata->chan = visorchannel_create(channelAddr,
-						    nChannelBytes,
+		devdata->chan = visorchannel_create(channel_addr,
+						    n_channel_bytes,
 						    channel_type_guid);
 		if (devdata->chan == NULL) {
 			ERRDRV("bus channel addr = 0x%-16.16llx, size = %llu",
-			       (unsigned long long)channelAddr,
-			       (unsigned long long)nChannelBytes);
+			       (unsigned long long)channel_addr,
+			       (unsigned long long)n_channel_bytes);
 			ERRDRV("visorchannel_create failed");
-			POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, channelAddr,
+			POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, channel_addr,
 					 POSTCODE_SEVERITY_ERR);
 		} else {
 			if (bus_info.flags.server) {
 				INFODRV("Bus channel %s connected (server, addr=0x%-16.16llx, size=%llu)",
 					visorchannel_id(devdata->chan, s),
-					(unsigned long long)channelAddr,
-					(unsigned long long)nChannelBytes);
+					(unsigned long long)channel_addr,
+					(unsigned long long)n_channel_bytes);
 				init_vbus_channel(devdata->chan);
 			} else {
 				INFODRV("Bus channel %s connected (client, addr=0x%-16.16llx, size=%llu)",
 					visorchannel_id(devdata->chan, s),
-					(unsigned long long)channelAddr,
-					(unsigned long long)nChannelBytes);
+					(unsigned long long)channel_addr,
+					(unsigned long long)n_channel_bytes);
 				if (get_vbus_header_info(devdata->chan,
 							 &devdata->
 							 vbus_hdr_info) >= 0) {
@@ -1454,14 +1457,14 @@ remove_all_visor_devices(void)
 }
 
 static BOOL entered_testing_mode = FALSE;
-static VISORCHIPSET_CHANNEL_INFO test_channel_infos[MAXDEVICETEST];
+static struct visorchipset_channel_info test_channel_infos[MAXDEVICETEST];
 static ulong test_bus_nos[MAXDEVICETEST];
 static ulong test_dev_nos[MAXDEVICETEST];
 
 static void
 chipset_bus_create(ulong bus_no)
 {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	struct visorbus_devdata *devdata;
 	int rc = -1;
 
@@ -1492,7 +1495,7 @@ away:
 static void
 chipset_bus_destroy(ulong bus_no)
 {
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_bus_info bus_info;
 	struct visorbus_devdata *devdata;
 	int rc = -1;
 
@@ -1518,8 +1521,8 @@ away:
 static void
 chipset_device_create(ulong bus_no, ulong dev_no)
 {
-	VISORCHIPSET_DEVICE_INFO dev_info;
-	VISORCHIPSET_BUS_INFO bus_info;
+	struct visorchipset_device_info dev_info;
+	struct visorchipset_bus_info bus_info;
 	struct visorbus_devdata *devdata = NULL;
 	int rc = -1;
 
@@ -1535,7 +1538,7 @@ chipset_device_create(ulong bus_no, ulong dev_no)
 	if (visorbus_devicetest)
 		if (total_devices_created < MAXDEVICETEST) {
 			test_channel_infos[total_devices_created] =
-			    dev_info.chanInfo;
+			    dev_info.chan_info;
 			test_bus_nos[total_devices_created] = bus_no;
 			test_dev_nos[total_devices_created] = dev_no;
 		}
@@ -1552,7 +1555,7 @@ away:
 	INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
 	devdata = (struct visorbus_devdata *)(bus_info.bus_driver_context);
 	rc = create_visor_device(devdata, bus_no, dev_no,
-				 dev_info.chanInfo, bus_info.partitionHandle);
+				 dev_info.chan_info, bus_info.partition_handle);
 	POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, dev_no, bus_no,
 			 POSTCODE_SEVERITY_INFO);
 	if (rc < 0)
@@ -1563,7 +1566,7 @@ away:
 static void
 chipset_device_destroy(ulong bus_no, ulong dev_no)
 {
-	VISORCHIPSET_DEVICE_INFO dev_info;
+	struct visorchipset_device_info dev_info;
 	struct visor_device *dev;
 	int rc = -1;
 
@@ -1571,7 +1574,7 @@ chipset_device_destroy(ulong bus_no, ulong dev_no)
 		return;
 	if (!visorchipset_get_device_info(bus_no, dev_no, &dev_info))
 		goto away;
-	dev = find_visor_device_by_channel(dev_info.chanInfo.channelAddr);
+	dev = find_visor_device_by_channel(dev_info.chan_info.channel_addr);
 	if (!dev)
 		goto away;
 	rc = 0;
@@ -1647,7 +1650,7 @@ resume_state_change_complete(struct visor_device *dev, int status)
 static void
 initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 {
-	VISORCHIPSET_DEVICE_INFO dev_info;
+	struct visorchipset_device_info dev_info;
 	struct visor_device *dev = NULL;
 	int rc = -1, x;
 	struct visor_driver *drv = NULL;
@@ -1665,7 +1668,7 @@ initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 		ERRDRV("visorchipset_get_device_info_failed");
 		goto away;
 	}
-	dev = find_visor_device_by_channel(dev_info.chanInfo.channelAddr);
+	dev = find_visor_device_by_channel(dev_info.chan_info.channel_addr);
 	if (!dev) {
 		ERRDRV("device not found");
 		goto away;
@@ -1791,7 +1794,7 @@ chipset_get_channel_info(uuid_le type_guid, ulong *min_size, ulong *max_size)
 static void
 periodic_test_work(struct work_struct *work)
 {
-	VISORCHIPSET_CHANNEL_INFO chanInfo;
+	struct visorchipset_channel_info chan_info;
 	struct visor_device *dev;
 	u64 current_interval;
 	static BOOL create_phase = FALSE;
@@ -1823,7 +1826,7 @@ periodic_test_work(struct work_struct *work)
 				INFODRV("Removing devices for devicetest...");
 				for (i = 0; i < visorbus_devicetest; i++) {
 					dev = find_visor_device_by_channel
-					    (test_channel_infos[i].channelAddr);
+					   (test_channel_infos[i].channel_addr);
 					if (dev != NULL)
 						remove_visor_device(dev);
 				}
@@ -1834,10 +1837,10 @@ periodic_test_work(struct work_struct *work)
 
 	if (visorbus_serialloopbacktest && (!entered_testing_mode)) {
 		entered_testing_mode = TRUE;
-		memset(&chanInfo, 0, sizeof(chanInfo));
-		chanInfo.channelAddr = SERIALLOOPBACKCHANADDR;
-		create_visor_device(devdata, 0, 0, chanInfo, 0);
-		create_visor_device(devdata, 0, 0, chanInfo, 0);
+		memset(&chan_info, 0, sizeof(chan_info));
+		chan_info.channel_addr = SERIALLOOPBACKCHANADDR;
+		create_visor_device(devdata, 0, 0, chan_info, 0);
+		create_visor_device(devdata, 0, 0, chan_info, 0);
 	}
 
 	if (queue_delayed_work(periodic_test_workqueue,
@@ -1896,7 +1899,8 @@ visorbus_init(void)
 					&periodic_work,
 					POLLJIFFIES_TESTWORK);
 		if (rc < 0) {
-			ERRDRV("queue_delayed_work(periodic_test_workqueue, &periodic_work, POLLJIFFIES_TESTWORK): error (status=%d)\n", rc);
+			ERRDRV("queue_delayed_work(periodic_test_workqueue, &periodic_work, POLLJIFFIES_TESTWORK): error (status=%d)\n",
+			       rc);
 			POSTCODE_LINUX_2(QUEUE_DELAYED_WORK_PC,
 					 DIAG_SEVERITY_ERR);
 			goto away;
