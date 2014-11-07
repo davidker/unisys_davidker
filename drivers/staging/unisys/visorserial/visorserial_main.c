@@ -167,7 +167,7 @@ struct visorserial_filedata_serial {
 	struct list_head list_all;
 	/** tasks queued here are waiting for read data */
 	wait_queue_head_t waiting_readers;
-	CHARQUEUE *data_from_host;
+	struct charqueue *data_from_host;
 	unsigned char buf[NFILEWRITEBYTESTOBUFFER];
 };
 

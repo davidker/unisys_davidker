@@ -34,18 +34,18 @@
 
 static int dump_vhba_bus = -1;
 
-static void chipset_bus_create(ulong busNo);
-static void chipset_bus_destroy(ulong busNo);
+static void chipset_bus_create(ulong bus_no);
+static void chipset_bus_destroy(ulong bus_no);
 
-static void chipset_device_create(ulong busNo, ulong devNo);
-static void chipset_device_destroy(ulong busNo, ulong devNo);
-static void chipset_device_pause(ulong busNo, ulong devNo);
-static void chipset_device_resume(ulong busNo, ulong devNo);
+static void chipset_device_create(ulong bus_no, ulong dev_no);
+static void chipset_device_destroy(ulong bus_no, ulong dev_no);
+static void chipset_device_pause(ulong bus_no, ulong dev_no);
+static void chipset_device_resume(ulong bus_no, ulong dev_no);
 
 /** These functions are implemented herein, and are called by the chipset
  *  driver to notify us about specific events.
  */
-static VISORCHIPSET_BUSDEV_NOTIFIERS chipset_notifiers = {
+static struct visorchipset_busdev_notifiers chipset_notifiers = {
 	.bus_create = chipset_bus_create,
 	.bus_destroy = chipset_bus_destroy,
 	.device_create = chipset_device_create,
@@ -58,15 +58,15 @@ static VISORCHIPSET_BUSDEV_NOTIFIERS chipset_notifiers = {
 /** These functions are implemented in the chipset driver, and we call them
  *  herein when we want to acknowledge a specific event.
  */
-static VISORCHIPSET_BUSDEV_RESPONDERS chipset_responders;
+static struct visorchipset_busdev_responders chipset_responders;
 
 /* filled in with info about parent chipset driver when we register with it */
 static struct ultra_vbus_deviceinfo chipset_driver_info;
 
 static void __iomem *
-get_virt(u64 phys_addr, u32 bytes, VISORCHIPSET_ADDRESSTYPE addrType)
+get_virt(u64 phys_addr, u32 bytes, enum visorchipset_addresstype addr_type)
 {
-	if (addrType == ADDRTYPE_localTest) {
+	if (addr_type == ADDRTYPE_LOCALTEST) {
 		if (phys_addr > virt_to_phys(high_memory - 1)) {
 			ERRDRV("%s - bad localTest address for channel (0x%-16.16Lx for %lu bytes)",
 			       __func__,
@@ -82,7 +82,7 @@ than HIGH_MEMORY.  If channel addresses is TRUE with the above
 mentioned scenario, then use ioremap_cache to get a valid pointer.
 otherwise return NULL.
  */
-	else if (addrType == ADDRTYPE_localPhysical) {
+	else if (addr_type == ADDRTYPE_LOCALPHYSICAL) {
 		struct resource *tmp, **p;
 		struct resource *root = NULL;
 		void __iomem  *pcpy = NULL;
@@ -130,146 +130,146 @@ otherwise return NULL.
 }
 
 static void __iomem *
-chipset_preamble(ulong busNo, ulong devNo, VISORCHIPSET_DEVICE_INFO *devinfo)
+chipset_preamble(ulong bus_no, ulong dev_no, struct visorchipset_device_info *devinfo)
 {
-	if (!visorchipset_get_device_info(busNo, devNo, devinfo)) {
+	if (!visorchipset_get_device_info(bus_no, dev_no, devinfo)) {
 		ERRDRV("%s - visorchipset_get_device_info returned false",
 		       __func__);
 		return NULL;
 	}
-	if ((uuid_le_cmp(devinfo->chanInfo.channelTypeGuid,
+	if ((uuid_le_cmp(devinfo->chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid) != 0) &&
-	    (uuid_le_cmp(devinfo->chanInfo.channelTypeGuid,
+	    (uuid_le_cmp(devinfo->chan_info.channel_type_uuid,
 			 spar_vhba_channel_protocol_uuid) != 0)) {
 		ERRDRV("%s - I only know how to handle VNIC or VHBA client channels",
 		       __func__);
 		return NULL;
 	}
-	return get_virt(devinfo->chanInfo.channelAddr,
-			devinfo->chanInfo.nChannelBytes,
-			devinfo->chanInfo.addrType);
+	return get_virt(devinfo->chan_info.channel_addr,
+			devinfo->chan_info.n_channel_bytes,
+			devinfo->chan_info.addr_type);
 }
 
 static void
-chipset_bus_create(ulong busNo)
+chipset_bus_create(ulong bus_no)
 {
 	int rc = 0;
 	u64 channeladdr = 0;
 	ulong nchannelbytes = 0;
-	VISORCHIPSET_BUS_INFO businfo;
+	struct visorchipset_bus_info businfo;
 	struct controlvm_message msg;
 
-	POSTCODE_LINUX_3(BUS_CREATE_ENTRY_PC, busNo, POSTCODE_SEVERITY_INFO);
-	if ((visorchipset_get_bus_info(busNo, &businfo)) &&
-	    (businfo.chanInfo.channelAddr > 0) &&
-	    (businfo.chanInfo.nChannelBytes > 0)) {
-		channeladdr = businfo.chanInfo.channelAddr;
-		nchannelbytes = (ulong)businfo.chanInfo.nChannelBytes;
+	POSTCODE_LINUX_3(BUS_CREATE_ENTRY_PC, bus_no, POSTCODE_SEVERITY_INFO);
+	if ((visorchipset_get_bus_info(bus_no, &businfo)) &&
+	    (businfo.chan_info.channel_addr > 0) &&
+	    (businfo.chan_info.n_channel_bytes > 0)) {
+		channeladdr = businfo.chan_info.channel_addr;
+		nchannelbytes = (ulong)businfo.chan_info.n_channel_bytes;
 	}
 	/* Save off message with IOVM bus info in case of crash */
-	if ((uuid_le_cmp(businfo.chanInfo.channelInstGuid,
+	if ((uuid_le_cmp(businfo.chan_info.channel_inst_uuid,
 			 spar_siovm_uuid) == 0)) {
 		msg.hdr.id = CONTROLVM_BUS_CREATE;
 		msg.hdr.flags.response_expected = 0;
 		msg.hdr.flags.server = 0;
-		msg.cmd.create_bus.bus_no = busNo;
-		msg.cmd.create_bus.dev_count = businfo.devNo;
+		msg.cmd.create_bus.bus_no = bus_no;
+		msg.cmd.create_bus.dev_count = businfo.dev_no;
 		msg.cmd.create_bus.channel_addr = channeladdr;
 		msg.cmd.create_bus.channel_bytes = nchannelbytes;
-		dump_vhba_bus = busNo;
-		visorchipset_save_message(&msg, CRASH_bus);
+		dump_vhba_bus = bus_no;
+		visorchipset_save_message(&msg, CRASH_BUS);
 	}
 
-	if (!uislib_client_inject_add_bus(busNo, 
+	if (!uislib_client_inject_add_bus(bus_no, 
 					  spar_vbus_channel_protocol_uuid,
 					  channeladdr, nchannelbytes)) {
 		rc = -1;
 	}
 
 	if (rc >= 0) {
-		INFODRV("%s(%lu) successful", __func__, busNo);
-		POSTCODE_LINUX_3(BUS_CREATE_EXIT_PC, busNo,
+		INFODRV("%s(%lu) successful", __func__, bus_no);
+		POSTCODE_LINUX_3(BUS_CREATE_EXIT_PC, bus_no,
 				 POSTCODE_SEVERITY_INFO);
 	} else {
-		ERRDRV("%s(%lu) failed", __func__, busNo);
-		POSTCODE_LINUX_3(BUS_CREATE_FAILURE_PC, busNo,
+		ERRDRV("%s(%lu) failed", __func__, bus_no);
+		POSTCODE_LINUX_3(BUS_CREATE_FAILURE_PC, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 	}
 	if (chipset_responders.bus_create)
-		(*chipset_responders.bus_create) (busNo, rc);
+		(*chipset_responders.bus_create) (bus_no, rc);
 }
 
 static void
-chipset_bus_destroy(ulong busNo)
+chipset_bus_destroy(ulong bus_no)
 {
 	int rc = 0;
 
-	if (!uislib_client_inject_del_bus(busNo))
+	if (!uislib_client_inject_del_bus(bus_no))
 		rc = -1;
 
 	if (rc >= 0)
-		INFODRV("%s(%lu) successful", __func__, busNo);
+		INFODRV("%s(%lu) successful", __func__, bus_no);
 	else
-		ERRDRV("%s(%lu) failed", __func__, busNo);
+		ERRDRV("%s(%lu) failed", __func__, bus_no);
 	if (chipset_responders.bus_destroy)
-		(*chipset_responders.bus_destroy) (busNo, rc);
+		(*chipset_responders.bus_destroy) (bus_no, rc);
 }
 
 static void
-chipset_device_create(ulong busNo, ulong devNo)
+chipset_device_create(ulong bus_no, ulong dev_no)
 {
 	void __iomem *paddr = NULL;
 	int rc = 0;
-	VISORCHIPSET_DEVICE_INFO devInfo;
+	struct visorchipset_device_info devInfo;
 	struct controlvm_message msg;
 
-	paddr = chipset_preamble(busNo, devNo, &devInfo);
-	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, devNo, busNo,
+	paddr = chipset_preamble(bus_no, dev_no, &devInfo);
+	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, dev_no, bus_no,
 			 POSTCODE_SEVERITY_INFO);
 
 	if (!paddr) {
 		rc = -1;
 		goto cleanup;
 	}
-	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid)) {
 		if (!uislib_client_inject_add_vnic
-		    (busNo, devNo,
-		     devInfo.chanInfo.channelAddr,
-		     devInfo.chanInfo.nChannelBytes,
-		     devInfo.chanInfo.addrType == ADDRTYPE_localTest,
-		     devInfo.devInstGuid, &devInfo.chanInfo.intr)) {
+		    (bus_no, dev_no,
+		     devInfo.chan_info.channel_addr,
+		     devInfo.chan_info.n_channel_bytes,
+		     devInfo.chan_info.addr_type == ADDRTYPE_LOCALTEST,
+		     devInfo.dev_inst_uuid, &devInfo.chan_info.intr)) {
 			rc = -2;
 			goto cleanup;
 		}
 		goto cleanup;
-	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	} else if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 				spar_vhba_channel_protocol_uuid)) {
 		/* Save off message with hba info in case of crash */
-		if (busNo == dump_vhba_bus) {
+		if (bus_no == dump_vhba_bus) {
 			msg.hdr.id = CONTROLVM_DEVICE_CREATE;
 			msg.hdr.flags.response_expected = 0;
 			msg.hdr.flags.server = 0;
-			msg.cmd.create_device.bus_no = busNo;
-			msg.cmd.create_device.dev_no = devNo;
+			msg.cmd.create_device.bus_no = bus_no;
+			msg.cmd.create_device.dev_no = dev_no;
 			msg.cmd.create_device.dev_inst_uuid =
-				devInfo.devInstGuid;
-			msg.cmd.create_device.intr = devInfo.chanInfo.intr;
+				devInfo.dev_inst_uuid;
+			msg.cmd.create_device.intr = devInfo.chan_info.intr;
 			msg.cmd.create_device.channel_addr =
-			    devInfo.chanInfo.channelAddr;
+			    devInfo.chan_info.channel_addr;
 			msg.cmd.create_device.channel_bytes =
-			    devInfo.chanInfo.nChannelBytes;
+			    devInfo.chan_info.n_channel_bytes;
 			msg.cmd.create_device.data_type_uuid =
 					spar_vhba_channel_protocol_uuid;
-			visorchipset_save_message(&msg, CRASH_dev);
+			visorchipset_save_message(&msg, CRASH_DEV);
 		}
 
 		if (!uislib_client_inject_add_vhba
-		    (busNo, devNo,
-		     devInfo.chanInfo.channelAddr,
-		     devInfo.chanInfo.nChannelBytes,
-		     devInfo.chanInfo.addrType == ADDRTYPE_localTest,
-		     devInfo.devInstGuid, &devInfo.chanInfo.intr)) {
+		    (bus_no, dev_no,
+		     devInfo.chan_info.channel_addr,
+		     devInfo.chan_info.n_channel_bytes,
+		     devInfo.chan_info.addr_type == ADDRTYPE_LOCALTEST,
+		     devInfo.dev_inst_uuid, &devInfo.chan_info.intr)) {
 			rc = -3;
 			goto cleanup;
 		}
@@ -279,111 +279,111 @@ chipset_device_create(ulong busNo, ulong devNo)
 	rc = -4;		/* unsupported GUID */
 cleanup:
 	if (rc >= 0) {
-		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
-		POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, devNo, busNo,
+		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
+		POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, dev_no, bus_no,
 				 POSTCODE_SEVERITY_INFO);
 	} else {
-		ERRDRV("%s(%lu,%lu)=%d failed", __func__, busNo, devNo, rc);
-		POSTCODE_LINUX_4(DEVICE_CREATE_FAILURE_PC, devNo, busNo,
+		ERRDRV("%s(%lu,%lu)=%d failed", __func__, bus_no, dev_no, rc);
+		POSTCODE_LINUX_4(DEVICE_CREATE_FAILURE_PC, dev_no, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 	}
 	if (chipset_responders.device_create)
-		(*chipset_responders.device_create) (busNo, devNo, rc);
+		(*chipset_responders.device_create) (bus_no, dev_no, rc);
 }
 
 static void
-chipset_device_destroy(ulong busNo, ulong devNo)
+chipset_device_destroy(ulong bus_no, ulong dev_no)
 {
 	void __iomem *paddr = NULL;
 	int rc = 0;
-	VISORCHIPSET_DEVICE_INFO devInfo;
+	struct visorchipset_device_info devInfo;
 
-	paddr = chipset_preamble(busNo, devNo, &devInfo);
+	paddr = chipset_preamble(bus_no, dev_no, &devInfo);
 	if (!paddr) {
 		rc = -1;
 		goto cleanup;
 	}
-	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid)) {
-		uislib_client_inject_del_vnic(busNo, devNo);
+		uislib_client_inject_del_vnic(bus_no, dev_no);
 		goto cleanup;
-	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	} else if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 				spar_vhba_channel_protocol_uuid)) {
-		uislib_client_inject_del_vhba(busNo, devNo);
+		uislib_client_inject_del_vhba(bus_no, dev_no);
 		goto cleanup;
 	}
 	rc = -1;		/* no match on GUID */
 cleanup:
 	if (rc >= 0)
-		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
+		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
 	else
-		ERRDRV("%s(%lu,%lu) failed", __func__, busNo, devNo);
+		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 	if (chipset_responders.device_destroy)
-		(*chipset_responders.device_destroy) (busNo, devNo, rc);
+		(*chipset_responders.device_destroy) (bus_no, dev_no, rc);
 }
 
 static void
-chipset_device_pause(ulong busNo, ulong devNo)
+chipset_device_pause(ulong bus_no, ulong dev_no)
 {
 	void __iomem *paddr = NULL;
 	int rc = 0;
-	VISORCHIPSET_DEVICE_INFO devInfo;
+	struct visorchipset_device_info devInfo;
 
-	paddr = chipset_preamble(busNo, devNo, &devInfo);
+	paddr = chipset_preamble(bus_no, dev_no, &devInfo);
 	if (!paddr) {
 		rc = -1;
 		goto cleanup;
 	}
-	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid)) {
-		rc = uislib_client_inject_pause_vnic(busNo, devNo);
+		rc = uislib_client_inject_pause_vnic(bus_no, dev_no);
 		goto cleanup;
-	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	} else if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 				spar_vhba_channel_protocol_uuid)) {
-		rc = uislib_client_inject_pause_vhba(busNo, devNo);
+		rc = uislib_client_inject_pause_vhba(bus_no, dev_no);
 		goto cleanup;
 	}
 	rc = -1;		/* no match on GUID */
 cleanup:
 	if (rc == CONTROLVM_RESP_SUCCESS)
-		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
+		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
 	/* Response sent when the pause is completed */
 	else {
-		ERRDRV("%s(%lu,%lu) failed", __func__, busNo, devNo);
+		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 		if (chipset_responders.device_pause)
-			(*chipset_responders.device_pause) (busNo, devNo, rc);
+			(*chipset_responders.device_pause) (bus_no, dev_no, rc);
 	}
 }
 
 static void
-chipset_device_resume(ulong busNo, ulong devNo)
+chipset_device_resume(ulong bus_no, ulong dev_no)
 {
 	void __iomem *paddr = NULL;
 	int rc = 0;
-	VISORCHIPSET_DEVICE_INFO devInfo;
+	struct visorchipset_device_info devInfo;
 
-	paddr = chipset_preamble(busNo, devNo, &devInfo);
+	paddr = chipset_preamble(bus_no, dev_no, &devInfo);
 	if (!paddr) {
 		rc = -1;
 		goto cleanup;
 	}
-	if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid)) {
-		rc = uislib_client_inject_resume_vnic(busNo, devNo);
+		rc = uislib_client_inject_resume_vnic(bus_no, dev_no);
 		goto cleanup;
-	} else if (!uuid_le_cmp(devInfo.chanInfo.channelTypeGuid,
+	} else if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 				spar_vhba_channel_protocol_uuid)) {
-		rc = uislib_client_inject_resume_vhba(busNo, devNo);
+		rc = uislib_client_inject_resume_vhba(bus_no, dev_no);
 		goto cleanup;
 	}
 	rc = -1;		/* no match on GUID */
 cleanup:
 	if (rc == CONTROLVM_RESP_SUCCESS)
-		INFODRV("%s(%lu,%lu) successful", __func__, busNo, devNo);
+		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
 	else
-		ERRDRV("%s(%lu,%lu) failed", __func__, busNo, devNo);
+		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 	if (chipset_responders.device_resume)
-		(*chipset_responders.device_resume) (busNo, devNo, rc);
+		(*chipset_responders.device_resume) (bus_no, dev_no, rc);
 }
 
 static int __init

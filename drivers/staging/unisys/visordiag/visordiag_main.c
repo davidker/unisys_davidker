@@ -502,7 +502,7 @@ visordiag_probe(struct visor_device *dev)
 {
 	int rc = 0;
 	struct visordiag_devdata *devdata = NULL;
-	MEMREGION *r = NULL;
+	struct memregion *r = NULL;
 
 	struct spar_diag_channel_protocol __iomem *p = NULL;
 
