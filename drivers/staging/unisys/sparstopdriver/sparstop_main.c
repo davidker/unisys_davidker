@@ -15,19 +15,8 @@
  * details.
  */
 
-/* --- Compiletime options ---// */
-/* Enable writing to /proc/sparstop/driver/diag to initiate tests */
-#define INCLUDE_TEST_INTERFACE
-#define ENABLE_RETURN_TRACE
-/* Enable DEBUGDRV and DEBUGDEV messages */
-/* (but you will still need "echo 8 >/proc/sys/kernel/printk" to see
- * on console)
- */
-#define DEBUG
-
 #include "sparstop_private.h"
 #include "sparstop.h"
-#include "easyproc.h"
 #include <linux/time.h>
 #include <linux/timex.h>
 #include <linux/timer.h>
@@ -146,7 +135,6 @@ struct sparstop_devdata {
 	struct device_attribute devdata_rw_property[proprw_DEVDATAMAX];
 	struct kref kref; /** we can deallocate only when refcount drops to 0 */
 	struct cdev cdev_stop; /** /dev/spar/sparstop */
-	struct easyproc_device_info procinfo;
 
 	/** callbacks to handle  interactions */
 	SPARSTOP_COMPLETE_FUNC complete_func;
@@ -535,7 +523,6 @@ remove_stop_device(struct device *dev)
 	devdata_put(devdata);	/* 1 less reference to devdata */
 	INFODRV("%s:About to do dev_set_drvdata", __func__);
 	dev_set_drvdata(dev, NULL);
-	INFODRV("%s:About to do easyproc_DeInitDevice ", __func__);
 
 	/* Note that it is still possible to have files open to this device
 	 * right now.  If this is the case, the reference counts for devdata
