@@ -75,7 +75,7 @@ struct spar_consolevideo_channel_protocol {
 /* Make it an even multiple of small pages: */
 #define CONSOLEVIDEO_CH_SIZE \
 	COVER(sizeof(struct spar_consolevideo_channel_protocol), \
-	      ULTRA_MEMORY_PAGE_KI)
+	      PAGE_SIZE)
 
 static inline void ULTRA_CONSOLEFRAMEBUFFER_init_offsets(
 		struct consoleframebuffer_firmwarevideodata *fw)
