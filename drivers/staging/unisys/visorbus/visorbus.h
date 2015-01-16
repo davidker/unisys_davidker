@@ -114,7 +114,7 @@ struct visor_device {
 	/** visor driver can use the visorchannel member with the functions
 	 *  defined in visorchannel.h to access the channel
 	 */
-	VISORCHANNEL *visorchannel;
+	struct visorchannel *visorchannel;
 	uuid_le channel_type_guid;
 	u64 channel_bytes;
 

@@ -865,7 +865,7 @@ create_visor_device(struct visorbus_devdata *devdata,
 		    u64 partition_handle)
 {
 	int rc = -1;
-	VISORCHANNEL *visorchannel = NULL;
+	struct visorchannel *visorchannel = NULL;
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE, registered1 = FALSE, registered2 = FALSE;
 	char s[99];
@@ -1048,7 +1048,7 @@ find_visor_device_by_channel(HOSTADDRESS channel_physaddr)
 }
 
 static int
-init_vbus_channel(VISORCHANNEL *chan)
+init_vbus_channel(struct visorchannel *chan)
 {
 	int rc = -1;
 	ulong allocated_bytes = visorchannel_get_nbytes(chan);
@@ -1103,7 +1103,8 @@ away:
 }
 
 static int
-get_vbus_header_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info)
+get_vbus_header_info(struct visorchannel *chan,
+		     struct spar_vbus_headerinfo *hdr_info)
 {
 	int rc = -1;
 
@@ -1139,7 +1140,8 @@ away:
  * spar_vbus_channel_protocol.chp_info. */
 
 static int
-write_vbus_chp_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info,
+write_vbus_chp_info(struct visorchannel *chan,
+		    struct spar_vbus_headerinfo *hdr_info,
 		    struct ultra_vbus_deviceinfo *info)
 {
 	int off = sizeof(struct channel_header) + hdr_info->chp_info_offset;
@@ -1163,7 +1165,8 @@ away:
  * spar_vbus_channel_protocol.bus_info. */
 
 static int
-write_vbus_bus_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info,
+write_vbus_bus_info(struct visorchannel *chan,
+		    struct spar_vbus_headerinfo *hdr_info,
 		    struct ultra_vbus_deviceinfo *info)
 {
 	int off = sizeof(struct channel_header) + hdr_info->bus_info_offset;
@@ -1187,7 +1190,8 @@ away:
  * struct spar_vbus_channel_protocol.dev_info[<devix>].
  */
 static int
-write_vbus_dev_info(VISORCHANNEL *chan, struct spar_vbus_headerinfo *hdr_info,
+write_vbus_dev_info(struct visorchannel *chan,
+		    struct spar_vbus_headerinfo *hdr_info,
 		    struct ultra_vbus_deviceinfo *info, int devix)
 {
 	int off =

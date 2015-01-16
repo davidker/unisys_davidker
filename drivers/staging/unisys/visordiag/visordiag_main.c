@@ -601,7 +601,7 @@ static struct visor_device *
 create_visor_device(u64 addr)
 {
 	struct visor_device *rc = NULL;
-	VISORCHANNEL *visorchannel = NULL;
+	struct visorchannel *visorchannel = NULL;
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE;
 	char s[99];

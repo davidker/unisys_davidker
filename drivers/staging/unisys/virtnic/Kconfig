@@ -4,7 +4,7 @@
 
 config UNISYS_VIRTNIC
 	tristate "Unisys virtnic driver"
-	depends on UNISYSSPAR && UNISYS_VISORCHIPSET && UNISYS_CHANNELSTUB && UNISYS_UISLIB && UNISYS_VIRTPCI
+	depends on UNISYSSPAR && UNISYS_VISORCHIPSET && UNISYS_UISLIB && UNISYS_VIRTPCI
 	---help---
 	If you say Y here, you will enable the Unisys virtnic driver.
 
