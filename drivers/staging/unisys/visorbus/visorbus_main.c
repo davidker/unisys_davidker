@@ -183,7 +183,6 @@ visorbus_release_busdevice(struct device *xdev)
 
 	dev_set_drvdata(xdev, NULL);
 	kfree(devdata);
-	INFODEV(dev_name(xdev), "bus device destroyed - freeing up memory now");
 	kfree(xdev);
 }
 
@@ -193,18 +192,13 @@ visorbus_release_busdevice(struct device *xdev)
 static void
 visorbus_release_device(struct device *xdev)
 {
-	char s[99];
 	struct visor_device *dev = to_visor_device(xdev);
 
-	INFODEV(dev_name(xdev),
-		"child device destroyed - freeing up memory now");
 	if (dev->periodic_work != NULL) {
 		visor_periodic_work_destroy(dev->periodic_work);
 		dev->periodic_work = NULL;
 	}
 	if (dev->visorchannel != NULL) {
-		INFODRV("Channel %s disconnected",
-			visorchannel_id(dev->visorchannel, s));
 		visorchannel_destroy(dev->visorchannel);
 		dev->visorchannel = NULL;
 	}
@@ -246,11 +240,9 @@ register_bustype_attributes(void)
 	int rc = 0;
 
 	rc = bus_create_file(&visorbus_type, &bustype_attr_version);
-	if (rc < 0) {
-		ERRDRV("bus_create_file(&Visorbus_type, &bustype_attr_version) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	/* Here we make up for the fact that bus_type does not yet have a
 	 * member to keep track of multiple bus instances for a given bus
 	 * type.  This is useful for stashing properties for each bus
@@ -260,11 +252,9 @@ register_bustype_attributes(void)
 	businstances.kobj.ktype = &businst_kobj_type;
 	businstances.kobj.parent = &visorbus_type.p->subsys.kobj;
 	rc = kset_register(&businstances);
-	if (rc < 0) {
-		ERRDRV("kset_register(&businstances) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = 0;
 away:
 	return rc;
@@ -440,53 +430,37 @@ register_businst_attributes(struct visorbus_devdata *businst)
 	businst->kobj.kset = &businstances;	/* identify parent sysfs dir */
 	rc = kobject_init_and_add(&businst->kobj, &businst_kobj_type,
 				  NULL, "visorbus%d", businst->devno);
-	if (rc < 0) {
-		ERRDRV("kobject_init_and_add() failed: (status=%d)\n", rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
 
 	rc = businst_create_file(businst, &ba_partition_handle);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_partition_handle) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = businst_create_file(businst, &ba_partition_guid);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_partition_guid) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = businst_create_file(businst, &ba_partition_name);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_partition_name) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = businst_create_file(businst, &ba_channel_addr);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_channel_addr) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = businst_create_file(businst, &ba_nchannel_bytes);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_nchannel_bytes) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = businst_create_file(businst, &ba_channel_id);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_channel_id) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	rc = businst_create_file(businst, &ba_client_bus_info);
-	if (rc < 0) {
-		ERRDRV("businst_create_file(ba_client_bus_info) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 
 	kobject_uevent(&businst->kobj, KOBJ_ADD);
 
@@ -531,13 +505,6 @@ register_driver_attributes(struct visor_driver *drv)
 	    __ATTR(version, S_IRUGO, DRIVER_ATTR_version, NULL);
 	drv->version_attr = version;
 	rc = driver_create_file(&drv->driver, &drv->version_attr);
-	if (rc < 0) {
-		ERRDRV("driver_create_file(&drv->driver, &drv->version_attr) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
-	rc = 0;
-away:
 	return rc;
 }
 
@@ -622,26 +589,19 @@ visordriver_probe_device(struct device *xdev)
 	get_visordev(dev, "probe", visorbus_debugref);
 	if (!drv->probe) {
 		up(&dev->visordriver_callback_lock);
-		ERRDEV(dev_name(&dev->device),
-		       "driver did not specify probe func");
 		rc = -1;
 		goto away;
 	}
 	rc = drv->probe(dev);
-	if (rc < 0) {
-		ERRDRV("drv->probe(dev) failed: (status=%d)\n", rc);
+	if (rc < 0)
 		goto away;
-	}
+
 	fix_vbus_dev_info(dev);
 	up(&dev->visordriver_callback_lock);
 	rc = 0;
 away:
-	if (rc == 0) {
-		INFODEV(dev_name(&dev->device), "child device probed");
-		/* device ref count is now up by one (get_device) */
-	} else {
+	if (rc != 0) {
 		put_visordev(dev, "probe", visorbus_debugref);
-		ERRDEV(dev_name(&dev->device), "child device probed failed");
 	}
 	/*  We could get here more than once if the child driver module is
 	 *  unloaded and re-loaded while devices are present.  That's why we
@@ -681,13 +641,9 @@ visordriver_remove_device(struct device *xdev)
 	 */
 	wmb();
 	if (drv) {
-		INFODEV(dev_name(&dev->device),
-			"detaching driver from child device");
 		if (drv->remove)
 			drv->remove(dev);
-	} else
-		INFODEV(dev_name(&dev->device),
-			"no need to detach driver from child device");
+	}
 	up(&dev->visordriver_callback_lock);
 	dev_stop_periodic_work(dev);
 	devmajorminor_remove_all_files(dev);
@@ -743,7 +699,6 @@ int visorbus_register_visor_driver(struct visor_driver *drv)
 {
 	int rc = 0;
 
-	INFODRV("child device driver %s loaded", drv->name);
 	drv->driver.name = drv->name;
 	drv->driver.bus = &visorbus_type;
 	drv->driver.probe = visordriver_probe_device;
@@ -763,22 +718,9 @@ int visorbus_register_visor_driver(struct visor_driver *drv)
 	 */
 
 	rc = driver_register(&drv->driver);
-	if (rc < 0) {
-		ERRDRV("driver_register(&drv->driver) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			return rc;
 	rc = register_driver_attributes(drv);
-	if (rc < 0) {
-		ERRDRV("register_driver_attributes(drv) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
-
-away:
-
-	if (rc)
-		ERRDRV("visorbus_register_visor_driver failed");
 	return rc;
 }
 EXPORT_SYMBOL_GPL(visorbus_register_visor_driver);
@@ -789,7 +731,6 @@ EXPORT_SYMBOL_GPL(visorbus_register_visor_driver);
 void
 visorbus_unregister_visor_driver(struct visor_driver *drv)
 {
-	INFODRV("child device driver %s unloaded", drv->name);
 	unregister_driver_attributes(drv);
 	driver_unregister(&drv->driver);
 }
@@ -868,35 +809,20 @@ create_visor_device(struct visorbus_devdata *devdata,
 	struct visorchannel *visorchannel = NULL;
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE, registered1 = FALSE, registered2 = FALSE;
-	char s[99];
 
 	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, chipset_dev_no, chipset_bus_no,
 			 POSTCODE_SEVERITY_INFO);
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
-	INFODRV("Channel discovered (addr=0x%-16.16llx, size=%llu)",
-		(unsigned long long)chan_info.channel_addr,
-		(unsigned long long)chan_info.n_channel_bytes);
 	visorchannel = visorchannel_create(chan_info.channel_addr,
 					   (ulong)chan_info.n_channel_bytes,
 					   chan_info.channel_type_uuid);
 	if (visorchannel == NULL) {
-		ERRDRV("channel addr = 0x%-16.16llx, size = %llu",
-		       (unsigned long long)chan_info.channel_addr,
-		       (unsigned long long)chan_info.n_channel_bytes);
-
-		ERRDRV("visorchannel_create failed: (status = -1)\n");
 		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
 		goto away;
 	}
-	INFODRV("Channel %s connected (addr=0x%-16.16llx, size=%llu)",
-		visorchannel_id(visorchannel, s),
-		(unsigned long long)chan_info.channel_addr,
-		(unsigned long long)chan_info.n_channel_bytes);
-
 	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
-		ERRDRV("failed to allocate visor_device: (status = -1)\n");
 		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
 		goto away;
@@ -922,7 +848,6 @@ create_visor_device(struct visorbus_devdata *devdata,
 					   dev_periodic_work,
 					   dev, dev_name(&dev->device));
 	if (dev->periodic_work == NULL) {
-		ERRDRV("failed to create periodic_work: (status = -1)\n");
 		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
 		goto away;
@@ -953,43 +878,29 @@ create_visor_device(struct visorbus_devdata *devdata,
 	 */
 	rc = device_add(&dev->device);
 	if (rc < 0) {
-		ERRDRV("device_add(&dev->device) failed: (status = %d)\n", rc);
 		POSTCODE_LINUX_3(DEVICE_ADD_PC, chipset_bus_no,
 				 DIAG_SEVERITY_ERR);
 		goto away;
 	}
 
 	/* note: device_register is simply device_initialize + device_add */
-	refcount_debug(dev, "after device_add");
-
 	rc = register_channel_attributes(dev);
 	if (rc < 0) {
-		ERRDRV("register_channel_attributes(dev) failed: (status = %d)\n",
-		       rc);
 		POSTCODE_LINUX_3(DEVICE_REGISTER_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
 		goto away;
 	}
 
-	refcount_debug(dev, "after register_channel_attributes");
 	registered1 = TRUE;
 
 	rc = register_devmajorminor_attributes(dev);
 	if (rc < 0) {
-		ERRDRV("register_devmajorminor_attributes(dev) failed: (status = %d)\n",
-		       rc);
 		POSTCODE_LINUX_3(DEVICE_REGISTER_FAILURE_PC, chipset_dev_no,
 				 DIAG_SEVERITY_ERR);
 		goto away;
 	}
 
-	refcount_debug(dev, "after register_devmajorminor_attributes");
 	registered2 = TRUE;
-
-	INFODEV(dev_name(&dev->device),
-		"child device 0x%p created", &dev->device);
-
-	refcount_debug(dev, "device creation complete");
 	rc = 0;
 
 away:
@@ -1001,8 +912,6 @@ away:
 		if (gotten)
 			put_visordev(dev, "create", visorbus_debugref);
 		if (visorchannel != NULL) {
-			INFODRV("Channel %s disconnected",
-				visorchannel_id(visorchannel, s));
 			visorchannel_destroy(visorchannel);
 		}
 		kfree(dev);
@@ -1016,13 +925,10 @@ away:
 static void
 remove_visor_device(struct visor_device *dev)
 {
-	INFODRV("removing child device %s (0x%p)",
-		dev_name(&dev->device), &dev->device);
 	list_del(&dev->list_all);
 	unregister_devmajorminor_attributes(dev);
 	unregister_channel_attributes(dev);
 	put_visordev(dev, "create", visorbus_debugref);
-	refcount_debug(dev, "about to call device_unregister");
 	device_unregister(&dev->device);
 }
 
@@ -1030,9 +936,6 @@ static struct visor_device *
 find_visor_device_by_channel(HOSTADDRESS channel_physaddr)
 {
 	struct list_head *listentry, *listtmp;
-
-	INFODRV("looking for dev with channel addr=0x%Lx",
-		(unsigned long long)(channel_physaddr));
 
 	list_for_each_safe(listentry, listtmp, &list_all_device_instances) {
 		struct visor_device *dev = list_entry(listentry,
@@ -1042,8 +945,6 @@ find_visor_device_by_channel(HOSTADDRESS channel_physaddr)
 		    channel_physaddr)
 			return dev;
 	}
-	ERRDRV("dev with channel addr=0x%Lx not found",
-	       (unsigned long long)(channel_physaddr));
 	return NULL;
 }
 
@@ -1059,25 +960,21 @@ init_vbus_channel(struct visorchannel *chan)
 	POSTCODE_LINUX_3(VBUS_CHANNEL_ENTRY_PC, rc, POSTCODE_SEVERITY_INFO);
 
 	if (x == NULL) {
-		ERRDRV("%s failed malloc", __func__);
 		POSTCODE_LINUX_2(MALLOC_FAILURE_PC, POSTCODE_SEVERITY_ERR);
 		goto away;
 	}
 	if (visorchannel_clear(chan, 0, 0, allocated_bytes) < 0) {
-		ERRDRV("%s clear failed", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
 		goto away;
 	}
 	if (visorchannel_read
 	    (chan, 0, x, sizeof(struct spar_vbus_channel_protocol)) < 0) {
-		ERRDRV("%s chan read failed", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
 		goto away;
 	}
 	if (!SPAR_VBUS_CHANNEL_OK_SERVER(allocated_bytes)) {
-		ERRDRV("%s channel cannot be used", __func__);
 		POSTCODE_LINUX_2(VBUS_CHANNEL_FAILURE_PC,
 				 POSTCODE_SEVERITY_ERR);
 		goto away;
@@ -1085,7 +982,6 @@ init_vbus_channel(struct visorchannel *chan)
 
 	if (visorchannel_write
 	    (chan, 0, x, sizeof(struct spar_vbus_channel_protocol)) < 0) {
-		ERRDRV("%s chan write failed", __func__);
 		POSTCODE_LINUX_3(VBUS_CHANNEL_FAILURE_PC, chan,
 				 POSTCODE_SEVERITY_ERR);
 		goto away;
@@ -1109,26 +1005,17 @@ get_vbus_header_info(struct visorchannel *chan,
 	int rc = -1;
 
 	if (!SPAR_VBUS_CHANNEL_OK_CLIENT(visorchannel_get_header(chan))) {
-		ERRDRV("vbus channel cannot be used - visorchannel_get_header failed");
 		goto away;
 	}
-	if (visorchannel_read
-	    (chan, sizeof(struct channel_header), hdr_info,
-	     sizeof(*hdr_info)) < 0) {
-		ERRDRV("%s chan read failed", __func__);
+	if (visorchannel_read(chan, sizeof(struct channel_header), hdr_info,
+			      sizeof(*hdr_info)) < 0) {
 		goto away;
 	}
 	if (hdr_info->struct_bytes < sizeof(struct spar_vbus_headerinfo)) {
-		ERRDRV("vbus channel not used, because header too small (%d < %lu)",
-		       hdr_info->struct_bytes,
-		       sizeof(struct spar_vbus_headerinfo));
 		goto away;
 	}
 	if (hdr_info->device_info_struct_bytes <
 	    sizeof(struct ultra_vbus_deviceinfo)) {
-		ERRDRV("vbus channel not used, because devinfo too small (%d < %lu)",
-		       hdr_info->device_info_struct_bytes,
-		       sizeof(struct ultra_vbus_deviceinfo));
 		goto away;
 	}
 	rc = 0;
@@ -1145,20 +1032,13 @@ write_vbus_chp_info(struct visorchannel *chan,
 		    struct ultra_vbus_deviceinfo *info)
 {
 	int off = sizeof(struct channel_header) + hdr_info->chp_info_offset;
-	int rc = -1;
 
-	if (hdr_info->chp_info_offset == 0) {
-		ERRDRV("vbus channel not used, because chp_info_offset == 0");
-		goto away;
-	}
-	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
-		ERRDRV("%s chan write of chpInfo to offset=%d", __func__,
-		       off);
-		goto away;
-	}
-	rc = 0;
-away:
-	return rc;
+	if (hdr_info->chp_info_offset == 0)
+			return -1;
+
+	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0)
+			return -1;
+	return 0;
 }
 
 /* Write the contents of <info> to the struct
@@ -1170,20 +1050,13 @@ write_vbus_bus_info(struct visorchannel *chan,
 		    struct ultra_vbus_deviceinfo *info)
 {
 	int off = sizeof(struct channel_header) + hdr_info->bus_info_offset;
-	int rc = -1;
 
-	if (hdr_info->bus_info_offset == 0) {
-		ERRDRV("vbus channel not used, because bus_info_offset == 0");
-		goto away;
-	}
-	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
-		ERRDRV("%s chan write of busInfo to offset=%d", __func__,
-		       off);
-		goto away;
-	}
-	rc = 0;
-away:
-	return rc;
+	if (hdr_info->bus_info_offset == 0)
+			return -1;
+
+	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0)
+			return -1;
+	return 0;
 }
 
 /* Write the contents of <info> to the
@@ -1197,20 +1070,13 @@ write_vbus_dev_info(struct visorchannel *chan,
 	int off =
 	    (sizeof(struct channel_header) + hdr_info->dev_info_offset) +
 	    (hdr_info->device_info_struct_bytes * devix);
-	int rc = -1;
 
-	if (hdr_info->dev_info_offset == 0) {
-		ERRDRV("vbus channel not used, because dev_info_offset == 0");
-		goto away;
-	}
-	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0) {
-		ERRDRV("%s chan write of dev_info to offset=%d", __func__,
-		       off);
-		goto away;
-	}
-	rc = 0;
-away:
-	return rc;
+	if (hdr_info->dev_info_offset == 0)
+			return -1;
+
+	if (visorchannel_write(chan, off, info, sizeof(*info)) < 0)
+			return -1;
+	return 0;
 }
 
 /* For a child device just created on a client bus, fill in
@@ -1230,27 +1096,19 @@ fix_vbus_dev_info(struct visor_device *visordev)
 	struct ultra_vbus_deviceinfo dev_info;
 	const char *chan_type_name = NULL;
 
-	if (visordev->device.driver == NULL) {
-		ERRDRV("%s no device driver for bus_no=%d dev_no=%d",
-		       __func__, bus_no, dev_no);
-		goto away;
-	}
+	if (visordev->device.driver == NULL)
+			return;
+
 	visordrv = to_visor_driver(visordev->device.driver);
-	if (!visorchipset_get_bus_info(bus_no, &bus_info)) {
-		ERRDRV("%s visorchipset_get_bus_info for bus_no=%d failed",
-		       __func__, bus_no);
-		goto away;
-	}
+	if (!visorchipset_get_bus_info(bus_no, &bus_info))
+			return;
+
 	devdata = (struct visorbus_devdata *)(bus_info.bus_driver_context);
-	if (!devdata) {
-		ERRDRV("%s bus_info.bus_driver_context is NULL for bus_no=%d",
-		       __func__, bus_no);
-		goto away;
-	}
-	if (!devdata->vbus_valid) {
-		/* this error would have been blabbered earlier */
-		goto away;
-	}
+	if (!devdata)
+			return;
+
+	if (!devdata->vbus_valid)
+			return;
 
 	/* Within the list of device types (by GUID) that the driver
 	 * says it supports, find out which one of those types matches
@@ -1278,9 +1136,6 @@ fix_vbus_dev_info(struct visor_device *visordev)
 			    &chipset_driverinfo);
 	write_vbus_bus_info(devdata->chan, &devdata->vbus_hdr_info,
 			    &clientbus_driverinfo);
-
-away:
-	return;
 }
 
 /** Create a device instance for the visor bus itself.
@@ -1292,12 +1147,10 @@ create_bus_instance(int id)
 	struct visorbus_devdata *devdata = NULL;
 	struct device *dev;
 	struct visorchipset_bus_info bus_info;
-	char s[99];
 
 	POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC, POSTCODE_SEVERITY_INFO);
 	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
-		ERRDRV("allocation of device for bus #%d failed", id);
 		POSTCODE_LINUX_2(MALLOC_FAILURE_PC, POSTCODE_SEVERITY_ERR);
 		rc = NULL;
 		goto away;
@@ -1306,17 +1159,14 @@ create_bus_instance(int id)
 	dev_set_name(dev, "visorbus%d", id);
 	dev->release = visorbus_release_busdevice;
 	if (device_register(dev) < 0) {
-		ERRDRV("device_register for bus #%d failed", id);
 		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, id,
 				 POSTCODE_SEVERITY_ERR);
 		rc = NULL;
 		goto away;
 	}
-	INFODEV(dev_name(dev), "bus device created");
 
 	devdata = kmalloc(sizeof(*devdata), GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
-		ERRDEV(dev_name(dev), "allocation of visorbus_devdata failed");
 		POSTCODE_LINUX_2(MALLOC_FAILURE_PC, POSTCODE_SEVERITY_ERR);
 		rc = NULL;
 		goto away;
@@ -1337,24 +1187,12 @@ create_bus_instance(int id)
 						    n_channel_bytes,
 						    channel_type_guid);
 		if (devdata->chan == NULL) {
-			ERRDRV("bus channel addr = 0x%-16.16llx, size = %llu",
-			       (unsigned long long)channel_addr,
-			       (unsigned long long)n_channel_bytes);
-			ERRDRV("visorchannel_create failed");
 			POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, channel_addr,
 					 POSTCODE_SEVERITY_ERR);
 		} else {
 			if (bus_info.flags.server) {
-				INFODRV("Bus channel %s connected (server, addr=0x%-16.16llx, size=%llu)",
-					visorchannel_id(devdata->chan, s),
-					(unsigned long long)channel_addr,
-					(unsigned long long)n_channel_bytes);
 				init_vbus_channel(devdata->chan);
 			} else {
-				INFODRV("Bus channel %s connected (client, addr=0x%-16.16llx, size=%llu)",
-					visorchannel_id(devdata->chan, s),
-					(unsigned long long)channel_addr,
-					(unsigned long long)n_channel_bytes);
 				if (get_vbus_header_info(devdata->chan,
 							 &devdata->
 							 vbus_hdr_info) >= 0) {
@@ -1395,7 +1233,6 @@ remove_bus_instance(struct visorbus_devdata *devdata)
 	 * successfully been able to trace thru the code to see where/how
 	 * release() gets called.  But I know it does.
 	 */
-	INFODRV("removing bus instance");
 	unregister_businst_attributes(devdata);
 	bus_count--;
 	if (devdata->chan) {
@@ -1416,20 +1253,10 @@ create_bus_type(void)
 
 	visorbus_type.dev_attrs = visor_device_attrs;
 	rc = bus_register(&visorbus_type);
-	if (rc < 0) {
-		ERRDRV("bus_register(&visorbus_type) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			return rc;
+
 	rc = register_bustype_attributes();
-	if (rc < 0) {
-		ERRDRV("register_bustype_attributes() failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
-	INFODRV("bus type registered %s", VERSION);
-	rc = 0;
-away:
 	return rc;
 }
 
@@ -1440,7 +1267,6 @@ remove_bus_type(void)
 {
 	unregister_bustype_attributes();
 	bus_unregister(&visorbus_type);
-	INFODRV("bus type unregistered %s", VERSION);
 }
 
 /** Remove all child visor bus device instances.
@@ -1449,8 +1275,6 @@ static void
 remove_all_visor_devices(void)
 {
 	struct list_head *listentry, *listtmp;
-
-	INFODRV("removing all child devices:");
 
 	list_for_each_safe(listentry, listtmp, &list_all_device_instances) {
 		struct visor_device *dev = list_entry(listentry,
@@ -1484,12 +1308,10 @@ chipset_bus_create(ulong bus_no)
 	rc = 0;
 away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu) failed", __func__, bus_no);
 		POSTCODE_LINUX_3(BUS_CREATE_FAILURE_PC, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 		return;
 	}
-	INFODRV("%s(%lu) successful", __func__, bus_no);
 	POSTCODE_LINUX_3(CHIPSET_INIT_SUCCESS_PC, bus_no,
 			 POSTCODE_SEVERITY_INFO);
 	if (chipset_responders.bus_create)
@@ -1514,12 +1336,10 @@ chipset_bus_destroy(ulong bus_no)
 	rc = 0;
 away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu) failed", __func__, bus_no);
 		return;
 	}
-	INFODRV("%s(%lu) successful", __func__, bus_no);
 	if (chipset_responders.bus_destroy)
-		(*chipset_responders.bus_destroy) (bus_no, rc);
+		(*chipset_responders.bus_destroy)(bus_no, rc);
 }
 
 static void
@@ -1551,12 +1371,10 @@ chipset_device_create(ulong bus_no, ulong dev_no)
 	rc = 0;
 away:
 	if (rc < 0) {
-		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 		POSTCODE_LINUX_4(DEVICE_CREATE_FAILURE_PC, dev_no, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 		return;
 	}
-	INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
 	devdata = (struct visorbus_devdata *)(bus_info.bus_driver_context);
 	rc = create_visor_device(devdata, bus_no, dev_no,
 				 dev_info.chan_info, bus_info.partition_handle);
@@ -1583,11 +1401,9 @@ chipset_device_destroy(ulong bus_no, ulong dev_no)
 		goto away;
 	rc = 0;
 away:
-	if (rc < 0) {
-		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
-		return;
-	}
-	INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
+	if (rc < 0)
+			return;
+
 	if (chipset_responders.device_destroy)
 		(*chipset_responders.device_destroy) (bus_no, dev_no, rc);
 	remove_visor_device(dev);
@@ -1600,19 +1416,13 @@ away:
 static void
 pause_state_change_complete(struct visor_device *dev, int status)
 {
-	if (!dev->pausing) {
-		ERRDEV(dev_name(&dev->device),
-		       "%s, but not pausing! (rc=%d)", __func__, status);
-		return;
-	}
-	INFODEV(dev_name(&dev->device),
-		"transition running-->paused rc=%d", status);
+	if (!dev->pausing)
+			return;
+
 	dev->pausing = FALSE;
-	if (!chipset_responders.device_pause) {
-		/* this can never happen! */
-		HUHDEV(dev_name(&dev->device), "no pause complete function");
-		return;
-	}
+	if (!chipset_responders.device_pause) /* this can never happen! */
+			return;
+
 	/* Notify the chipset driver that the pause is complete, which
 	* will presumably want to send some sort of response to the
 	* initiator. */
@@ -1627,19 +1437,13 @@ pause_state_change_complete(struct visor_device *dev, int status)
 static void
 resume_state_change_complete(struct visor_device *dev, int status)
 {
-	if (!dev->resuming) {
-		ERRDEV(dev_name(&dev->device),
-		       "%s, but not resuming! (rc=%d)", __func__, status);
-		return;
-	}
-	INFODEV(dev_name(&dev->device),
-		"transition paused-->running rc=%d", status);
+	if (!dev->resuming)
+			return;
+
 	dev->resuming = FALSE;
-	if (!chipset_responders.device_resume) {
-		/* this can never happen! */
-		HUHDEV(dev_name(&dev->device), "no resume complete function");
-		return;
-	}
+	if (!chipset_responders.device_resume) /* this can never happen! */
+			return;
+
 	/* Notify the chipset driver that the resume is complete,
 	 * which will presumably want to send some sort of response to
 	 * the initiator. */
@@ -1664,28 +1468,23 @@ initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 		notify_func = chipset_responders.device_pause;
 	else
 		notify_func = chipset_responders.device_resume;
-	if (!notify_func) {
-		HUHDRV("no chipset_responders notify function (this is WAY serious)");
-		goto away;
-	}
-	if (!visorchipset_get_device_info(bus_no, dev_no, &dev_info)) {
-		ERRDRV("visorchipset_get_device_info_failed");
-		goto away;
-	}
+	if (!notify_func)
+			goto away;
+
+	if (!visorchipset_get_device_info(bus_no, dev_no, &dev_info))
+			goto away;
+
 	dev = find_visor_device_by_channel(dev_info.chan_info.channel_addr);
-	if (!dev) {
-		ERRDRV("device not found");
-		goto away;
-	}
+	if (!dev)
+			goto away;
+
 	drv = to_visor_driver(dev->device.driver);
-	if (!drv) {
-		ERRDEV(dev_name(&dev->device), "driver not found");
-		goto away;
-	}
-	if (dev->pausing || dev->resuming) {
-		ERRDEV(dev_name(&dev->device), "already pausing or resuming");
-		goto away;
-	}
+	if (!drv)
+			goto away;
+
+	if (dev->pausing || dev->resuming)
+			goto away;
+
 	/* Note that even though both drv->pause() and drv->resume
 	 * specify a callback function, it is NOT necessary for us to
 	 * increment our local module usage count.  Reason is, there
@@ -1694,11 +1493,9 @@ initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 	 * visorbus while child function drivers are still running.
 	 */
 	if (is_pause) {
-		if (!drv->pause) {
-			ERRDEV(dev_name(&dev->device),
-			       "visorbus cannot pause device, because function driver does not support pause");
-			goto away;
-		}
+		if (!drv->pause)
+				goto away;
+
 		dev->pausing = TRUE;
 		x = drv->pause(dev, pause_state_change_complete);
 	} else {
@@ -1708,11 +1505,9 @@ initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 		 * ever have a bus that contains NO devices, since we
 		 * would never even get here in that case. */
 		fix_vbus_dev_info(dev);
-		if (!drv->resume) {
-			ERRDEV(dev_name(&dev->device),
-			       "visorbus cannot resume device, because function driver does not support resume");
-			goto away;
-		}
+		if (!drv->resume)
+				goto away;
+
 		dev->resuming = TRUE;
 		x = drv->resume(dev, resume_state_change_complete);
 	}
@@ -1721,22 +1516,13 @@ initiate_chipset_device_pause_resume(ulong bus_no, ulong dev_no, BOOL is_pause)
 			dev->pausing = FALSE;
 		else
 			dev->resuming = FALSE;
-		ERRDEV(dev_name(&dev->device),
-		       "function driver pause/resume failed with rc=%d", x);
 		goto away;
 	}
 	rc = 0;
 away:
 	if (rc < 0) {
-		if (dev)
-			ERRDEV(dev_name(&dev->device), "%s state change failed",
-			       (is_pause) ? "pause" : "resume");
-		else
-			ERRDRV("%s(%s,%lu,%lu) failed",
-			       __func__, (is_pause) ? "pause" : "resume",
-			       bus_no, dev_no);
 		if (notify_func)
-			(*notify_func) (bus_no, dev_no, rc);
+				(*notify_func)(bus_no, dev_no, rc);
 	}
 }
 
@@ -1804,20 +1590,16 @@ periodic_test_work(struct work_struct *work)
 	static BOOL create_phase = FALSE;
 	static u64 last_interval;
 
-	/* INFODRV("periodic work"); */
 	current_interval = get_jiffies_64() / 8192;
 	/* 32.5 seconds at HZ=250 */
 	if (visorbus_devicetest && (current_interval > last_interval)) {
 		last_interval = current_interval;
-		INFODRV("devicetest interval #%llu",
-			(unsigned long long)current_interval);
 		if ((visorbus_devicetest > 0) &&
 		    (total_devices_created >= visorbus_devicetest)) {
 			int i;
 
 			entered_testing_mode = TRUE;
 			if (create_phase) {
-				INFODRV("Adding devices for devicetest...");
 				for (i = 0; i < visorbus_devicetest; i++) {
 					create_visor_device
 					    (devdata,
@@ -1827,7 +1609,6 @@ periodic_test_work(struct work_struct *work)
 				}
 				create_phase = FALSE;
 			} else {
-				INFODRV("Removing devices for devicetest...");
 				for (i = 0; i < visorbus_devicetest; i++) {
 					dev = find_visor_device_by_channel
 					   (test_channel_infos[i].channel_addr);
@@ -1847,9 +1628,8 @@ periodic_test_work(struct work_struct *work)
 		create_visor_device(devdata, 0, 0, chan_info, 0);
 	}
 
-	if (queue_delayed_work(periodic_test_workqueue,
-			       &periodic_work, POLLJIFFIES_TESTWORK) < 0)
-		ERRDRV("queue_delayed_work failed!");
+	queue_delayed_work(periodic_test_workqueue,
+			   &periodic_work, POLLJIFFIES_TESTWORK);
 }
 
 static int __init
@@ -1858,30 +1638,17 @@ visorbus_init(void)
 	int rc = 0;
 
 	POSTCODE_LINUX_3(DRIVER_ENTRY_PC, rc, POSTCODE_SEVERITY_INFO);
-	INFODRV("bus driver version %s loaded", VERSION);
-
 	bus_device_info_init(&clientbus_driverinfo,
 			     "clientbus", MYDRVNAME,
 			     VERSION, NULL);
 
 	/* process module options */
 
-	INFODRV("option - debug=%d", visorbus_debug);
-	INFODRV("option - forcematch=%d", visorbus_forcematch);
-	INFODRV("option - forcenomatch=%d", visorbus_forcenomatch);
-	INFODRV("option - devicetest=%d", visorbus_devicetest);
-	if (visorbus_devicetest > MAXDEVICETEST) {
-		visorbus_devicetest = MAXDEVICETEST;
-		INFODRV("option - devicetest=%d (reduced to maximum)",
-			visorbus_devicetest);
-	}
-	INFODRV("option - debugref=%d", visorbus_debugref);
-	INFODRV("option - serialloopbacktest=%d",
-		visorbus_serialloopbacktest);
+	if (visorbus_devicetest > MAXDEVICETEST)
+			visorbus_devicetest = MAXDEVICETEST;
 
 	rc = create_bus_type();
 	if (rc < 0) {
-		ERRDRV("create_bus_type(): error (status=%d)\n", rc);
 		POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC, DIAG_SEVERITY_ERR);
 		goto away;
 	}
@@ -1891,8 +1658,6 @@ visorbus_init(void)
 		periodic_test_workqueue =
 		    create_singlethread_workqueue("visorbus_test");
 		if (periodic_test_workqueue == NULL) {
-			ERRDRV("cannot create test workqueue: error (status=%d)\n",
-			       -ENOMEM);
 			POSTCODE_LINUX_2(BUS_CREATE_ENTRY_PC,
 					 DIAG_SEVERITY_ERR);
 			rc = -ENOMEM;
@@ -1903,8 +1668,6 @@ visorbus_init(void)
 					&periodic_work,
 					POLLJIFFIES_TESTWORK);
 		if (rc < 0) {
-			ERRDRV("queue_delayed_work(periodic_test_workqueue, &periodic_work, POLLJIFFIES_TESTWORK): error (status=%d)\n",
-			       rc);
 			POSTCODE_LINUX_2(QUEUE_DELAYED_WORK_PC,
 					 DIAG_SEVERITY_ERR);
 			goto away;
@@ -1913,8 +1676,6 @@ visorbus_init(void)
 
 	periodic_dev_workqueue = create_singlethread_workqueue("visorbus_dev");
 	if (periodic_dev_workqueue == NULL) {
-		ERRDRV("cannot create dev workqueue: error (status=%d)\n",
-		       -ENOMEM);
 		POSTCODE_LINUX_2(CREATE_WORKQUEUE_PC, DIAG_SEVERITY_ERR);
 		rc = -ENOMEM;
 		goto away;
@@ -1930,11 +1691,9 @@ visorbus_init(void)
 	rc = 0;
 
 away:
-	if (rc) {
-		ERRDRV("visorbus_init failed");
-		POSTCODE_LINUX_3(CHIPSET_INIT_FAILURE_PC, rc,
-				 POSTCODE_SEVERITY_ERR);
-	}
+	if (rc)
+			POSTCODE_LINUX_3(CHIPSET_INIT_FAILURE_PC, rc,
+					 POSTCODE_SEVERITY_ERR);
 	return rc;
 }
 
@@ -1965,7 +1724,6 @@ visorbus_exit(void)
 		remove_bus_instance(devdata);
 	}
 	remove_bus_type();
-	INFODRV("bus driver unloaded");
 }
 
 module_param_named(debug, visorbus_debug, int, S_IRUGO);

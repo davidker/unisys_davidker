@@ -206,17 +206,14 @@ lxser_startup(struct uart_port *port)
 	struct linux_serial *ls =
 	(__force struct linux_serial *)(port->membase);
 
-	INFODRV("%s", __func__);
 	ls->periodic_work = visor_periodic_work_create(DELAY_TIME,
 						       workqueue,
 						       lxser_periodic_work,
 						       ls, "visortty");
-	if (ls->periodic_work == NULL) {
-		ERRDEVX(ls->devno, "failed to create periodic_work");
-		return -ENOMEM;
-	}
+	if (ls->periodic_work == NULL)
+			return -ENOMEM;
+
 	visor_periodic_work_start(ls->periodic_work);
-	INFODRV("port started");
 	return 0;
 }
 
@@ -228,7 +225,6 @@ lxser_shutdown(struct uart_port *port)
 	struct linux_serial *ls =
 	(__force struct linux_serial *)(port->membase);
 
-	INFODRV("%s", __func__);
 	if (ls->periodic_work != NULL) {
 		visor_periodic_work_stop(ls->periodic_work);
 		visor_periodic_work_destroy(ls->periodic_work);
@@ -289,16 +285,12 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 	struct linux_serial *rc = NULL;
 	struct linux_serial *ls = NULL;
 
-	INFODRV("%s", __func__);
 	if (devno >= UART_NR) {
-		ERRDEVX(devno, "tty device NOT created (max tty devices=%d)",
-			UART_NR);
 		rc = NULL;
 		goto cleanups;
 	}
 	ls = kmalloc(sizeof(*ls), GFP_KERNEL|__GFP_NORETRY);
 	if (ls == NULL) {
-		ERRDEVX(devno, "%s allocation failed ", __func__);
 		rc = NULL;
 		goto cleanups;
 	}
@@ -323,29 +315,24 @@ linuxserial_create(int devno, void *context, void (*transmit_char) (void *, u8))
 	if (!driver_registered) {
 		result = uart_register_driver(&visorserial_lxser_reg);
 		if (result) {
-			ERRDEVX(devno, "uart_register_driver failed");
 			rc = NULL;
 			goto cleanups;
 		}
 		workqueue = create_singlethread_workqueue("visortty");
 		if (workqueue == NULL) {
-			ERRDEVX(devno, "cannot create workqueue");
 			uart_unregister_driver(&visorserial_lxser_reg);
 			rc = NULL;
 			goto cleanups;
 		}
-		INFODRV("tty driver registered");
 		driver_registered = TRUE;
 	}
 
 	result = uart_add_one_port(&visorserial_lxser_reg, &ls->port);
 	if (result) {
-		ERRDEVX(devno, "uart_add_one_port failed");
 		uart_unregister_driver(&visorserial_lxser_reg);
 		rc = NULL;
 		goto cleanups;
 	}
-	INFODEVX(devno, "tty port added");
 	registered_ports++;
 
 	rc = ls;
@@ -362,7 +349,6 @@ cleanups:
 void
 linuxserial_destroy(struct linux_serial *ls)
 {
-	INFODEVX(ls->devno, "%s", __func__);
 	if (ls == NULL)
 		return;
 	uart_remove_one_port(&visorserial_lxser_reg, &ls->port);

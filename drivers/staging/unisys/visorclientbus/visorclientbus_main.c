@@ -67,12 +67,8 @@ static void __iomem *
 get_virt(u64 phys_addr, u32 bytes, enum visorchipset_addresstype addr_type)
 {
 	if (addr_type == ADDRTYPE_LOCALTEST) {
-		if (phys_addr > virt_to_phys(high_memory - 1)) {
-			ERRDRV("%s - bad localTest address for channel (0x%-16.16Lx for %lu bytes)",
-			       __func__,
-			       (unsigned long long)phys_addr, (ulong)bytes);
-			return NULL;
-		}
+		if (phys_addr > virt_to_phys(high_memory - 1))
+				return NULL;
 		return (void __iomem *)__va(phys_addr);
 	}
 
@@ -101,10 +97,6 @@ otherwise return NULL.
 
 			if (phys_addr <= virt_to_phys(high_memory - 1)) {
 				/*Memory is reserved and within HIGH_MEMORY */
-				ERRDRV("%s - localPhysical address overlaps memory our OS is currently using! (0x%-16.16Lx for %lu bytes)",
-				       __func__,
-				       (unsigned long long)phys_addr,
-				       (ulong)bytes);
 				return NULL;
 			}
 			break;	/* greater then HIGH_MEMORY */
@@ -113,15 +105,10 @@ otherwise return NULL.
 		 * HIGM_MEMORY
 		 */
 		if (phys_addr > (u64)ULONG_MAX) {
-			ERRDRV("%s - localPhysical address is too large to be be mapped (0x%-16.16Lx for %lu bytes)",
-			       __func__,
-			       (unsigned long long)phys_addr, (ulong)bytes);
 			return NULL;
 		}
 		pcpy = ioremap_cache((ulong)phys_addr, (ulong)bytes);
 		if (pcpy == NULL) {
-			ERRDRV("%s - ioremap_cache(0x%lx,%lu) failed",
-			       __func__, (ulong)phys_addr, (ulong)bytes);
 			return NULL;
 		}
 		return pcpy;
@@ -132,17 +119,13 @@ otherwise return NULL.
 static void __iomem *
 chipset_preamble(ulong bus_no, ulong dev_no, struct visorchipset_device_info *devinfo)
 {
-	if (!visorchipset_get_device_info(bus_no, dev_no, devinfo)) {
-		ERRDRV("%s - visorchipset_get_device_info returned false",
-		       __func__);
-		return NULL;
-	}
+	if (!visorchipset_get_device_info(bus_no, dev_no, devinfo))
+			return NULL;
+
 	if ((uuid_le_cmp(devinfo->chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid) != 0) &&
 	    (uuid_le_cmp(devinfo->chan_info.channel_type_uuid,
 			 spar_vhba_channel_protocol_uuid) != 0)) {
-		ERRDRV("%s - I only know how to handle VNIC or VHBA client channels",
-		       __func__);
 		return NULL;
 	}
 	return get_virt(devinfo->chan_info.channel_addr,
@@ -187,11 +170,9 @@ chipset_bus_create(ulong bus_no)
 	}
 
 	if (rc >= 0) {
-		INFODRV("%s(%lu) successful", __func__, bus_no);
 		POSTCODE_LINUX_3(BUS_CREATE_EXIT_PC, bus_no,
 				 POSTCODE_SEVERITY_INFO);
 	} else {
-		ERRDRV("%s(%lu) failed", __func__, bus_no);
 		POSTCODE_LINUX_3(BUS_CREATE_FAILURE_PC, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 	}
@@ -207,10 +188,6 @@ chipset_bus_destroy(ulong bus_no)
 	if (!uislib_client_inject_del_bus(bus_no))
 		rc = -1;
 
-	if (rc >= 0)
-		INFODRV("%s(%lu) successful", __func__, bus_no);
-	else
-		ERRDRV("%s(%lu) failed", __func__, bus_no);
 	if (chipset_responders.bus_destroy)
 		(*chipset_responders.bus_destroy) (bus_no, rc);
 }
@@ -279,11 +256,9 @@ chipset_device_create(ulong bus_no, ulong dev_no)
 	rc = -4;		/* unsupported GUID */
 cleanup:
 	if (rc >= 0) {
-		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
 		POSTCODE_LINUX_4(DEVICE_CREATE_SUCCESS_PC, dev_no, bus_no,
 				 POSTCODE_SEVERITY_INFO);
 	} else {
-		ERRDRV("%s(%lu,%lu)=%d failed", __func__, bus_no, dev_no, rc);
 		POSTCODE_LINUX_4(DEVICE_CREATE_FAILURE_PC, dev_no, bus_no,
 				 POSTCODE_SEVERITY_ERR);
 	}
@@ -314,10 +289,6 @@ chipset_device_destroy(ulong bus_no, ulong dev_no)
 	}
 	rc = -1;		/* no match on GUID */
 cleanup:
-	if (rc >= 0)
-		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
-	else
-		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 	if (chipset_responders.device_destroy)
 		(*chipset_responders.device_destroy) (bus_no, dev_no, rc);
 }
@@ -326,32 +297,18 @@ static void
 chipset_device_pause(ulong bus_no, ulong dev_no)
 {
 	void __iomem *paddr = NULL;
-	int rc = 0;
 	struct visorchipset_device_info devInfo;
 
 	paddr = chipset_preamble(bus_no, dev_no, &devInfo);
-	if (!paddr) {
-		rc = -1;
-		goto cleanup;
-	}
+	if (!paddr)
+			return;
+
 	if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid)) {
-		rc = uislib_client_inject_pause_vnic(bus_no, dev_no);
-		goto cleanup;
+		uislib_client_inject_pause_vnic(bus_no, dev_no);
 	} else if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 				spar_vhba_channel_protocol_uuid)) {
-		rc = uislib_client_inject_pause_vhba(bus_no, dev_no);
-		goto cleanup;
-	}
-	rc = -1;		/* no match on GUID */
-cleanup:
-	if (rc == CONTROLVM_RESP_SUCCESS)
-		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
-	/* Response sent when the pause is completed */
-	else {
-		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
-		if (chipset_responders.device_pause)
-			(*chipset_responders.device_pause) (bus_no, dev_no, rc);
+		uislib_client_inject_pause_vhba(bus_no, dev_no);
 	}
 }
 
@@ -359,37 +316,28 @@ static void
 chipset_device_resume(ulong bus_no, ulong dev_no)
 {
 	void __iomem *paddr = NULL;
-	int rc = 0;
 	struct visorchipset_device_info devInfo;
 
 	paddr = chipset_preamble(bus_no, dev_no, &devInfo);
-	if (!paddr) {
-		rc = -1;
-		goto cleanup;
-	}
+	if (!paddr)
+			goto cleanup;
 	if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 			 spar_vnic_channel_protocol_uuid)) {
-		rc = uislib_client_inject_resume_vnic(bus_no, dev_no);
+		uislib_client_inject_resume_vnic(bus_no, dev_no);
 		goto cleanup;
 	} else if (!uuid_le_cmp(devInfo.chan_info.channel_type_uuid,
 				spar_vhba_channel_protocol_uuid)) {
-		rc = uislib_client_inject_resume_vhba(bus_no, dev_no);
+		uislib_client_inject_resume_vhba(bus_no, dev_no);
 		goto cleanup;
 	}
-	rc = -1;		/* no match on GUID */
 cleanup:
-	if (rc == CONTROLVM_RESP_SUCCESS)
-		INFODRV("%s(%lu,%lu) successful", __func__, bus_no, dev_no);
-	else
-		ERRDRV("%s(%lu,%lu) failed", __func__, bus_no, dev_no);
 	if (chipset_responders.device_resume)
-		(*chipset_responders.device_resume) (bus_no, dev_no, rc);
+		(*chipset_responders.device_resume)(bus_no, dev_no, 0);
 }
 
 static int __init
 visorclientbus_init(void)
 {
-	INFODRV("client bus driver version %s loaded", VERSION);
 	POSTCODE_LINUX_2(CHIPSET_INIT_ENTRY_PC, POSTCODE_SEVERITY_INFO);
 	/* This enables us to receive notifications when devices appear for
 	 * which this service partition is to be a client for.
@@ -407,7 +355,6 @@ static void
 visorclientbus_exit(void)
 {
 	visorchipset_register_busdev_client(NULL, NULL, NULL);
-	INFODRV("client bus driver unloaded");
 }
 
 module_init(visorclientbus_init);

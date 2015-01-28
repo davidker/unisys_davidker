@@ -21,7 +21,6 @@
  * state to go RUNNING.
  */
 
-#include "uniklog.h"
 #include "diagnostics/appos_subsystems.h"
 #include "timskmod.h"
 #include "globals.h"
@@ -96,21 +95,19 @@ static struct visornoop_devdata *devdata_create(struct visor_device *dev)
 
 	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
-	if (devdata == NULL) {
-		ERRDRV("allocation of visornoop_devdata failed\n");
-		goto cleanups;
-	}
+	if (devdata == NULL)
+			goto cleanups;
+
 	memset(devdata, '\0', sizeof(struct visornoop_devdata));
 	spin_lock(&dev_no_pool_lock);
 	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
 	set_bit(devno, dev_no_pool);
 	spin_unlock(&dev_no_pool_lock);
 	if (devno == MAXDEVICES)
-		devno = -1;
-	if (devno < 0) {
-		ERRDRV("unknown device\n");
-		goto cleanups;
-	}
+			devno = -1;
+	if (devno < 0)
+			goto cleanups;
+
 	devdata->devno = devno;
 	devdata->dev = dev;
 	strncpy(devdata->name, dev_name(&dev->device), sizeof(devdata->name));
@@ -138,7 +135,6 @@ static void devdata_release(struct kref *mykref)
 	struct visornoop_devdata *devdata =
 		container_of(mykref, struct visornoop_devdata, kref);
 
-	INFODRV("%s", __func__);
 	spin_lock(&dev_no_pool_lock);
 	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&dev_no_pool_lock);
@@ -146,7 +142,6 @@ static void devdata_release(struct kref *mykref)
 	list_del(&devdata->list_all);
 	spin_unlock(&lock_all_devices);
 	kfree(devdata);
-	INFODRV("%s finished", __func__);
 }
 
 static int visornoop_probe(struct visor_device *dev)
@@ -154,7 +149,6 @@ static int visornoop_probe(struct visor_device *dev)
 	int rc = 0;
 	struct visornoop_devdata *devdata = NULL;
 
-	INFODRV("%s", __func__);
 	devdata = devdata_create(dev);
 	if (devdata == NULL) {
 		rc = -1;
@@ -162,7 +156,6 @@ static int visornoop_probe(struct visor_device *dev)
 	}
 	visor_set_drvdata(dev, devdata);
 cleanups:
-	INFODRV("%s finished", __func__);
 	if (rc < 0) {
 		if (devdata != NULL)
 			kref_put(&devdata->kref, devdata_release);
@@ -182,22 +175,17 @@ static void visornoop_remove(struct visor_device *dev)
 {
 	struct visornoop_devdata *devdata = visor_get_drvdata(dev);
 
-	INFODRV("%s", __func__);
-	if (devdata == NULL) {
-		ERRDRV("no devdata in %s", __func__);
-		goto cleanups;
-	}
+	if (devdata == NULL)
+			return;
+
 	visor_set_drvdata(dev, NULL);
 	host_side_disappeared(devdata);
 	kref_put(&devdata->kref, devdata_release);
-cleanups:
-	INFODRV("%s finished", __func__);
 }
 
 static int visornoop_pause(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "paused");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -205,7 +193,6 @@ static int visornoop_pause(struct visor_device *dev,
 static int visornoop_resume(struct visor_device *dev,
 			    VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "resumed");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -221,29 +208,19 @@ static void visornoop_cleanup_guts(void)
 
 static int visornoop_init(void)
 {
-	int rc = 0;
-
-	INFODRV("driver version %s loaded", VERSION);
-
 	spin_lock_init(&dev_no_pool_lock);
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
 	if (dev_no_pool == NULL) {
-		ERRDRV("Unable to create dev_no_pool");
-		rc = -1;
-		goto cleanups;
+		visornoop_cleanup_guts();
+		return -1;
 	}
 	visorbus_register_visor_driver(&visornoop_driver);
-
-cleanups:
-	if (rc < 0)
-		visornoop_cleanup_guts();
-	return rc;
+	return 0;
 }
 
 static void visornoop_cleanup(void)
 {
 	visornoop_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 module_init(visornoop_init);

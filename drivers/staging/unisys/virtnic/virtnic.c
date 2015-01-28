@@ -22,7 +22,6 @@
 #include <config/modversions.h>
 #endif
 
-#include "uniklog.h"
 #include "diagnostics/appos_subsystems.h"
 #include "uisutils.h"
 #include "uisthread.h"
@@ -129,7 +128,6 @@ static struct virtpci_driver virtnic_driver = {
 };
 
 #define SEND_ENBDIS(ndev, state, cmdrsp, queue, insertlock, stats) { \
-	DBGINF("sending rcv enb/dis netdev:%p state:%d\n", ndev, state); \
 	cmdrsp->net.enbdis.enable = state; \
 	cmdrsp->net.enbdis.context = ndev; \
 	cmdrsp->net.type = NET_RCV_ENBDIS; \
@@ -313,15 +311,7 @@ post_skb(struct uiscmdrsp *cmdrsp,
 	cmdrsp->net.rcvpost.frag.pi_len = skb->len;
 	cmdrsp->net.rcvpost.unique_num = vnicinfo->uniquenum;
 
-	DBGINF("RCV_POST skb:%p pfn:%llu off:%x len:%d\n", skb,
-	       cmdrsp->net.rcvpost.frag.pi_pfn,
-	       cmdrsp->net.rcvpost.frag.pi_off,
-	       cmdrsp->net.rcvpost.frag.pi_len);
-	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) > PI_PAGE_SIZE) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** pi_off:0x%x pi_len:%d SPAN ACROSS A PAGE\n",
-			   cmdrsp->net.rcvpost.frag.pi_off, skb->len);
-	} else {
+	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) <= PI_PAGE_SIZE) {
 		cmdrsp->net.type = NET_RCV_POST;
 		cmdrsp->cmdtype = CMD_NET_TYPE;
 		uisqueue_put_cmdrsp_with_lock_client(vnicinfo->datachan.chinfo.
@@ -414,14 +404,10 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 		return res;						\
 }
 
-	DBGINF("virtpci_dev:%p\n", virtpcidev);
-	DBGINF("virtpcidev busNo<<%d>>devNo<<%d>>",
-	       virtpcidev->busNo, virtpcidev->deviceNo);
 	netdev = alloc_etherdev(sizeof(struct virtnic_info));
-	if (netdev == NULL) {
-		LOGERR("**** FAILED to alloc etherdev\n");
-		return -ENOMEM;
-	}
+	if (netdev == NULL)
+			return -ENOMEM;
+
 	netdev->netdev_ops = &virtnic_dev_ops;
 	netdev->watchdog_timeo = VIRTNIC_XMIT_TIMEOUT;
 
@@ -444,47 +430,32 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	atomic_set(&vnicinfo->usage, 1);	/* starting val */
 	vnicinfo->zoneguid = virtpcidev->net.zone_uuid;
 	vnicinfo->num_rcv_bufs = virtpcidev->net.num_rcv_bufs;
-	LOGINFNAME(vnicinfo->netdev, "num_rcv_bufs =  %d\n",
-		   vnicinfo->num_rcv_bufs);
 	vnicinfo->rcvbuf = kmalloc(sizeof(struct sk_buff *) *
 				   vnicinfo->num_rcv_bufs, GFP_ATOMIC);
-	if (vnicinfo->rcvbuf == NULL) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** FAILED to allocate memory for %d receive buffers.\n",
-			   vnicinfo->num_rcv_bufs);
-		RETFAIL(-ENOMEM);
-	}
+	if (vnicinfo->rcvbuf == NULL)
+			RETFAIL(-ENOMEM);
+
 	memset(vnicinfo->rcvbuf, 0,
 	       sizeof(struct sk_buff *) * vnicinfo->num_rcv_bufs);
 	/* set the net_xmit outstanding threshold */
 	vnicinfo->max_outstanding_net_xmits =
 	    max(3, ((vnicinfo->num_rcv_bufs / 3) - 2));
 	/* always leave two slots open but you should have 3 at a minimum */
-	LOGINFNAME(vnicinfo->netdev, "max_outstanding_net_xmits =  %d\n",
-		   vnicinfo->max_outstanding_net_xmits);
 	vnicinfo->upper_threshold_net_xmits =
 	    max(2, vnicinfo->max_outstanding_net_xmits - 1);
-	LOGINFNAME(vnicinfo->netdev, "upper_threshold_net_xmits =  %d\n",
-		   vnicinfo->upper_threshold_net_xmits);
 	vnicinfo->lower_threshold_net_xmits =
 	    max(1, vnicinfo->max_outstanding_net_xmits / 2);
-	LOGINFNAME(vnicinfo->netdev, "lower_threshold_net_xmits =  %d\n",
-		   vnicinfo->lower_threshold_net_xmits);
 	skb_queue_head_init(&vnicinfo->xmitbufhead);
 
 	/* create a cmdrsp we can use to post and unpost rcv buffers  */
 	vnicinfo->cmdrsp_rcv = kmalloc(SIZEOF_CMDRSP, GFP_ATOMIC);
-	if (vnicinfo->cmdrsp_rcv == NULL) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** FAILED to allocate cmdrsp to use for posting rcv buffers\n");
-		RETFAIL(-ENOMEM);
-	}
+	if (vnicinfo->cmdrsp_rcv == NULL)
+			RETFAIL(-ENOMEM);
+
 	vnicinfo->xmit_cmdrsp = kmalloc(SIZEOF_CMDRSP, GFP_ATOMIC);
-	if (vnicinfo->xmit_cmdrsp == NULL) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** FAILED to allocate cmdrsp to use for xmits\n");
-		RETFAIL(-ENOMEM);
-	}
+	if (vnicinfo->xmit_cmdrsp == NULL)
+			RETFAIL(-ENOMEM);
+
 	INIT_WORK(&vnicinfo->serverdown_completion,
 		  virtnic_serverdown_complete);
 	INIT_WORK(&vnicinfo->timeout_reset, virtnic_timeout_reset);
@@ -504,9 +475,6 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	writeq(readq(&vnicinfo->datachan.chinfo.queueinfo->chan->features) |
 	       ULTRA_IO_CHANNEL_IS_POLLING,
 	       &vnicinfo->datachan.chinfo.queueinfo->chan->features);
-	DBGINF("starting rsp thread queueinfo:%p threadinfo:%p\n",
-	       vnicinfo->datachan.chinfo.queueinfo,
-	       &vnicinfo->datachan.chinfo.threadinfo);
 	p_channel_header = vnicinfo->datachan.chinfo.queueinfo->chan;
 	pqhdr = (struct signal_queue_header __iomem *)
 		((char __iomem *)p_channel_header +
@@ -514,23 +482,11 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	    IOCHAN_FROM_IOPART;
 	vnicinfo->flags_addr = (__force uint64_t __iomem *)&pqhdr->features;
 	vnicinfo->thread_wait_ms = 2;
-	if (!uisthread_start(&vnicinfo->datachan.chinfo.threadinfo,
-			     process_incoming_rsps, &vnicinfo->datachan,
-			     "vnic_incoming")) {
-		LOGERRNAME(vnicinfo->netdev, "**** FAILED to start thread\n");
-		RETFAIL(-ENODEV);
-	}
+	uisthread_start(&vnicinfo->datachan.chinfo.threadinfo,
+			process_incoming_rsps, &vnicinfo->datachan,
+			"vnic_incoming");
 
 	/* register_netdev */
-	LOGINFNAME(vnicinfo->netdev, "sendInterruptHandle=0x%16llX",
-		   (unsigned long long)vnicinfo->intr.send_irq_handle);
-	LOGINFNAME(vnicinfo->netdev, "recvInterruptHandle=0x%16llX",
-		   (unsigned long long)vnicinfo->intr.recv_irq_handle);
-	LOGINFNAME(vnicinfo->netdev, "recvInterruptVector=0x%8X",
-		   vnicinfo->intr.recv_irq_vector);
-	LOGINFNAME(vnicinfo->netdev, "recvInterruptShared=0x%2X",
-		   vnicinfo->intr.recv_irq_shared);
-	LOGINFNAME(vnicinfo->netdev, "netdev->name=%s", netdev->name);
 	vnicinfo->interrupt_vector = vnicinfo->intr.recv_irq_handle &
 	    INTERRUPT_VECTOR_MASK;
 	netdev->irq = vnicinfo->interrupt_vector;
@@ -544,9 +500,6 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	vnicinfo->eth_debugfs_dir = debugfs_create_dir(netdev->name,
 						       virtnic_debugfs_dir);
 	if (!vnicinfo->eth_debugfs_dir) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "****FAILED to create proc dir entry:%s\n",
-			   netdev->name);
 		uisthread_stop(&vnicinfo->datachan.chinfo.threadinfo);
 		RETFAIL(-ENODEV);
 	}
@@ -564,16 +517,10 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 	rsp = request_irq(vnicinfo->interrupt_vector, handler, IRQF_SHARED,
 			  netdev->name, vnicinfo);
 	if (rsp != 0) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "request_irq(%d) uislib_vnic_ISR request failed with rsp=%d\n",
-			   vnicinfo->interrupt_vector, rsp);
 		vnicinfo->interrupt_vector = -1;
 	} else {
 		uint64_t __iomem *features_addr =
 		    &vnicinfo->datachan.chinfo.queueinfo->chan->features;
-		LOGERRNAME(vnicinfo->netdev,
-			   "request_irq(%d) uislib_vnic_ISR request succeeded\n",
-			   vnicinfo->interrupt_vector);
 		mask = ~(ULTRA_IO_CHANNEL_IS_POLLING |
 			 ULTRA_IO_DRIVER_DISABLES_INTS |
 			 ULTRA_IO_DRIVER_SUPPORTS_ENHANCED_RCVBUF_CHECKING);
@@ -585,12 +532,6 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 		vnicinfo->thread_wait_ms = 2000;
 	}
 
-	LOGINFNAME(vnicinfo->netdev,
-		   "Added VirtNic:%p %s insertlock:%p %02x:%02x:%02x:%02x:%02x:%02x\n",
-		   netdev, netdev->name, &vnicinfo->datachan.chinfo.insertlock,
-		   netdev->dev_addr[0], netdev->dev_addr[1],
-		   netdev->dev_addr[2], netdev->dev_addr[3],
-		   netdev->dev_addr[4], netdev->dev_addr[5]);
 	return 0;
 }
 
@@ -602,14 +543,7 @@ virtnic_remove(struct virtpci_dev *virtpcidev)
 
 	vnicinfo = netdev_priv(netdev);
 
-	LOGINFNAME(vnicinfo->netdev,
-		   "virtpcidev:%p netdev:%p name:%s vnicinfo:%p\n",
-		   virtpcidev, netdev, netdev->name, vnicinfo);
-	LOGINFNAME(vnicinfo->netdev,
-		   "virtpcidev busNo<<%d>>devNo<<%d>>",
-		   virtpcidev->bus_no, virtpcidev->device_no);
 	/* REMOVE netdev */
-	DBGINF("unregistering netdev\n");
 	if (vnicinfo->interrupt_vector != -1)
 		free_irq(vnicinfo->interrupt_vector, vnicinfo);
 	unregister_netdev(netdev);
@@ -627,13 +561,9 @@ virtnic_remove(struct virtpci_dev *virtpcidev)
 	device_remove_file(&netdev->dev, &dev_attr_clientstr);
 
 	debugfs_remove(vnicinfo->eth_debugfs_dir);
-	LOGINFNAME(vnicinfo->netdev, "removed dentry %s\n",
-		   netdev->name);
 
 	kfree(vnicinfo->rcvbuf);
 	free_netdev(netdev);
-
-	LOGINF("virtnic removed\n");
 }
 
 /*****************************************************/
@@ -656,31 +586,6 @@ static struct net_device_stats *
 virtnic_get_stats(struct net_device *netdev)
 {
 	struct virtnic_info *vnicinfo = netdev_priv(netdev);
-
-	/* take this opportunity to print out our internal stats */
-	DBGINF
-	    ("NET_RCV_ENBDIS sent: %ld     NET_RCV_ENBDIS_ACK received: %ld\n",
-	     vnicinfo->datachan.chstat.sent_enbdis,
-	     vnicinfo->datachan.chstat.got_enbdisack);
-
-	DBGINF("NET_RCV received: %ld        NET_RCV_POST sent: %ld\n",
-	       vnicinfo->datachan.chstat.got_rcv,
-	       vnicinfo->datachan.chstat.sent_post);
-
-	DBGINF("extra NET_RCV_POST sent: %ld\n",
-	       vnicinfo->datachan.chstat.extra_rcvbufs_sent);
-
-	DBGINF("NET_XMIT sent: %ld           NET_XMIT_DONE received: %ld\n",
-	       vnicinfo->datachan.chstat.sent_xmit,
-	       vnicinfo->datachan.chstat.got_xmit_done);
-
-	DBGINF("XMIT failures: %ld           NET_RCV_PROMISC sent: %ld\n",
-	       vnicinfo->datachan.chstat.xmit_fail,
-	       vnicinfo->datachan.chstat.sent_promisc);
-
-	DBGINF("XMIT reject/busy: %ld\n",
-	       vnicinfo->datachan.chstat.reject_count);
-
 	return &vnicinfo->net_stats;
 }
 
@@ -702,13 +607,10 @@ alloc_rcv_buf(struct net_device *netdev)
  * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
  * is large enough to hold 1514.
  */
-	DBGINF("netdev->name <<%s>>:  allocating skb len:%d\n", netdev->name,
-	       RCVPOST_BUF_SIZE);
 	skb = alloc_skb(RCVPOST_BUF_SIZE, GFP_ATOMIC | __GFP_NOWARN);
-	if (!skb) {
-		LOGVER("**** alloc_skb failed\n");
-		return NULL;
-	}
+	if (!skb)
+			return NULL;
+
 	skb->dev = netdev;
 	skb->len = RCVPOST_BUF_SIZE;
 	/* current value of mtu doesn't come into play here; large
@@ -725,7 +627,6 @@ init_rcv_bufs(struct net_device *netdev, struct virtnic_info *vnicinfo)
 {
 	int i, count;
 
-	DBGINF("netdev->name <<%s>>", netdev->name);
 	/*
 	 * allocate fixed number of receive buffers to post to uisnic
 	 * post receive buffers after we've allocated a required
@@ -737,15 +638,8 @@ init_rcv_bufs(struct net_device *netdev, struct virtnic_info *vnicinfo)
 			break;	/* if we failed to allocate one let us stop */
 	}
 	if (i < vnicinfo->num_rcv_bufs) {
-		LOGWRNNAME(vnicinfo->netdev,
-			   "only allocated %d of %d receive buffers", i,
-			   vnicinfo->num_rcv_bufs);
-		if (i == 0) {
-			/* couldn't even allocate one - bail out */
-			LOGERRNAME(vnicinfo->netdev,
-				   "**** FAILED to allocate any rcv buffers\n");
-			return -ENOMEM;
-		}
+		if (i == 0) /* couldn't even allocate one - bail out */
+				return -ENOMEM;
 	}
 	count = i;
 	/* Ensure we can alloc 2/3rd of the requested number of
@@ -753,9 +647,6 @@ init_rcv_bufs(struct net_device *netdev, struct virtnic_info *vnicinfo)
 	 * init.c.
 	 */
 	if (count < ((2 * vnicinfo->num_rcv_bufs) / 3)) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** FAILED to allocate enough rcv bufs; allocated only:%d MAX_NET_RCV_BUFS:%d\n",
-			   count, MAX_NET_RCV_BUFS);
 		/* free receive buffers we did allocate and then bail out */
 		for (i = 0; i < count; i++) {
 			kfree_skb(vnicinfo->rcvbuf[i]);
@@ -772,9 +663,6 @@ init_rcv_bufs(struct net_device *netdev, struct virtnic_info *vnicinfo)
 
 	/* push through with what buffers we've got - unallocated ones will */
 	/* be null */
-	LOGINFNAME(vnicinfo->netdev, "Allocated & posted %d rcv buffers\n",
-		   count);
-
 	return 0;
 }
 
@@ -792,7 +680,6 @@ virtnic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	unsigned long flags;
 	int wait = 0;
 
-	LOGINFNAME(vnicinfo->netdev, "netdev->name <<%s>>", netdev->name);
 	/* stop the transmit queue so nothing more can be transmitted */
 	netif_stop_queue(netdev);
 
@@ -811,8 +698,6 @@ virtnic_disable_with_timeout(struct net_device *netdev, const int timeout)
 		    &vnicinfo->datachan.chinfo.insertlock,
 		    vnicinfo->datachan.chstat);
 
-	LOGINFNAME(vnicinfo->netdev,
-		   "Waiting for ENBDIS ACK before freeing rcv buffers...\n");
 	/* wait for ack to arrive before we try to free rcv buffers
 	 * NOTE: the other end automatically unposts the rcv buffers
 	 * when it gets a disable.
@@ -825,8 +710,6 @@ virtnic_disable_with_timeout(struct net_device *netdev, const int timeout)
 			break;
 		} else if (vnicinfo->server_down ||
 			vnicinfo->server_change_state) {
-			LOGERRNAME(vnicinfo->netdev,
-				   "IOVM is down so disable will not be acknowledged.  Stopping wait.\n");
 			spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
 			return -1;
 		}
@@ -835,14 +718,9 @@ virtnic_disable_with_timeout(struct net_device *netdev, const int timeout)
 		wait += schedule_timeout(msecs_to_jiffies(10));
 	}
 	if (!vnicinfo->n_rcv_packet_not_accepted) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "IOVM did not respond to Disable in allocated time (%d msecs).\n",
-			   timeout);
 		spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
 		return -1;
 	}
-	LOGINFNAME(vnicinfo->netdev,
-		   "Got ENBDIS ACK; now waiting for 0 usage count...\n");
 
 	/*
 	 * wait for usage to go to 1 (no other users) before freeing
@@ -863,8 +741,6 @@ virtnic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	}
 	/* we've set enabled to 0, so we can give up the lock. */
 	spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
-	LOGINFNAME(vnicinfo->netdev,
-		   "Usage count is 0; freeing the rcv buffers now\n");
 
 	/* free rcv buffers - other end has automatically unposted
 	 * them on disable
@@ -876,7 +752,6 @@ virtnic_disable_with_timeout(struct net_device *netdev, const int timeout)
 			count++;
 		}
 	}
-	LOGINFNAME(vnicinfo->netdev, "Freed %d rcv bufs\n", count);
 
 	/* remove references from debug array */
 	for (i = 0; i < VIRTNICSOPENMAX; i++) {
@@ -934,9 +809,6 @@ virtnic_enable_with_timeout(struct net_device *netdev, const int timeout)
 		    &vnicinfo->datachan.chinfo.insertlock,
 		    vnicinfo->datachan.chstat);
 
-	LOGINFNAME(vnicinfo->netdev, "netdev->name <<%s>>", netdev->name);
-	LOGINFNAME(vnicinfo->netdev,
-		   "Waiting for ENBDIS ACK before starting device queue...\n");
 	while ((timeout == VIRTNIC_INFINITE_RESPONSE_WAIT) ||
 	       (wait < timeout)) {
 		spin_lock_irqsave(&vnicinfo->priv_lock, flags);
@@ -946,8 +818,6 @@ virtnic_enable_with_timeout(struct net_device *netdev, const int timeout)
 		} else if (vnicinfo->server_down ||
 			   vnicinfo->server_change_state) {
 			/* IOVM is going down so don't wait for a response */
-			LOGERRNAME(vnicinfo->netdev,
-				   "IOVM is down so enable will not be acknowledged.  Stopping wait.\n");
 			spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
 			return -1;
 		}
@@ -956,14 +826,10 @@ virtnic_enable_with_timeout(struct net_device *netdev, const int timeout)
 		wait += schedule_timeout(msecs_to_jiffies(10));
 	}
 	if (!vnicinfo->enab_dis_acked) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "IOVM did not respond to Enable in allocated time (%d msecs).\n",
-			   timeout);
 		spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
 		return -1;
 	}
 	spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
-	LOGINFNAME(vnicinfo->netdev, "Got ENBDIS ACK\n");
 
 	/* find an open slot in the array to save off VirtNic
 	 * references for debug
@@ -975,10 +841,6 @@ virtnic_enable_with_timeout(struct net_device *netdev, const int timeout)
 			break;
 		}
 	}
-	if (i == VIRTNICSOPENMAX)
-		LOGINFNAME(vnicinfo->netdev,
-			   "No storage for debug ref for netdev = 0x%p vnicinfo = 0x%p\n",
-			   netdev, vnicinfo);
 
 	return 0;
 }
@@ -1017,17 +879,13 @@ send_rcv_posts_if_needed(struct virtnic_info *vnicinfo)
 				continue;
 			vnicinfo->rcvbuf[i] = alloc_rcv_buf(netdev);
 			if (!vnicinfo->rcvbuf[i]) {
-				LOGVER("**** %s FAILED to allocate new rcv buf - no REPOST\n",
-				       netdev->name);
-				vnicinfo->
-				    alloc_failed_in_if_needed_cnt++;
+				vnicinfo->alloc_failed_in_if_needed_cnt++;
 				break;
 			} else {
 				rcv_bufs_allocated++;
 				post_skb(cmdrsp, vnicinfo,
 					 vnicinfo->rcvbuf[i]);
-				vnicinfo->datachan.chstat.
-				    extra_rcvbufs_sent++;
+				vnicinfo->datachan.chstat.extra_rcvbufs_sent++;
 			}
 		}
 	}
@@ -1038,10 +896,6 @@ send_rcv_posts_if_needed(struct virtnic_info *vnicinfo)
 		 * normal path, and you are trying again later, and
 		 * it still fails.
 		 */
-		LOGVER("attempted to recover buffers which could not be allocated and failed");
-		LOGVER("rcv_bufs_allocated=%d, num_rcv_bufs_could_not_alloc=%d",
-		       rcv_bufs_allocated,
-		       vnicinfo->num_rcv_bufs_could_not_alloc);
 	}
 }
 
@@ -1069,32 +923,22 @@ drain_queue(struct datachan *dc, struct uiscmdrsp *cmdrsp,
 		spin_unlock_irqrestore(&dc->chinfo.insertlock, flags);
 		if (qrslt == 0)
 			break;	/* queue empty */
-		DBGINF("%p cmdrsp->net.type:%d\n",
-		       &dc->chinfo.queueinfo, cmdrsp->net.type);
 		switch (cmdrsp->net.type) {
 		case NET_RCV:
-			DBGINF("Got NET_RCV\n");
 			dc->chstat.got_rcv++;
 			/* process incoming packet */
 			virtnic_rx(cmdrsp);
 			break;
 		case NET_XMIT_DONE:
-			DBGINF("Got NET_XMIT_DONE %p\n", cmdrsp->net.buf);
 			spin_lock_irqsave(&vnicinfo->priv_lock, flags);
 			dc->chstat.got_xmit_done++;
-			if (cmdrsp->net.xmtdone.xmt_done_result) {
-				LOGERRNAME(vnicinfo->netdev,
-					   "XMIT_DONE failure buf:%p\n",
-					   cmdrsp->net.buf);
-				dc->chstat.xmit_fail++;
-			}
+			if (cmdrsp->net.xmtdone.xmt_done_result)
+					dc->chstat.xmit_fail++;
 			/* only call queue wake if we stopped it */
 			netdev = ((struct sk_buff *)cmdrsp->net.buf)->dev;
 			/* ASSERT netdev == vnicinfo->netdev; */
-			if (netdev != vnicinfo->netdev) {
-				LOGERRNAME(vnicinfo->netdev, "NET_XMIT_DONE something wrong; vnicinfo->netdev:%p != cmdrsp->net.buf)->dev:%p\n",
-					   vnicinfo->netdev, netdev);
-			} else if (netif_queue_stopped(netdev)) {
+			if (netdev == vnicinfo->netdev &&
+			    netif_queue_stopped(netdev)) {
 				/*
 				 * check to see if we have crossed
 				 * the lower watermark for
@@ -1124,9 +968,6 @@ drain_queue(struct datachan *dc, struct uiscmdrsp *cmdrsp,
 			kfree_skb(cmdrsp->net.buf);
 			break;
 		case NET_RCV_ENBDIS_ACK:
-			DBGINF("Got NET_RCV_ENBDIS_ACK on:%p\n",
-			       (struct net_device *)
-			       cmdrsp->net.enbdis.context);
 			dc->chstat.got_enbdisack++;
 			netdev = (struct net_device *)
 				cmdrsp->net.enbdis.context;
@@ -1144,8 +985,6 @@ drain_queue(struct datachan *dc, struct uiscmdrsp *cmdrsp,
 			}
 			break;
 		case NET_CONNECT_STATUS:
-			DBGINF("NET_CONNECT_STATUS, enable=:%d\n",
-			       cmdrsp->net.enbdis.enable);
 			netdev = vnicinfo->netdev;
 			if (cmdrsp->net.enbdis.enable == 1) {
 				spin_lock_irqsave(&vnicinfo->priv_lock, flags);
@@ -1164,9 +1003,6 @@ drain_queue(struct datachan *dc, struct uiscmdrsp *cmdrsp,
 			}
 			break;
 		default:
-			LOGERRNAME(vnicinfo->netdev,
-				   "Invalid net type:%d in cmdrsp\n",
-				   cmdrsp->net.type);
 			break;
 		}
 		/* cmdrsp is now available for reuse  */
@@ -1189,16 +1025,13 @@ process_incoming_rsps(void *v)
 	unsigned long long rc1;
 
 	UIS_DAEMONIZE("vnic_incoming");
-	DBGINF("In process_incoming_rsps pid:%d queueinfo:%p threadinfo:%p\n",
-	       current->pid, dc->chinfo.queueinfo, &dc->chinfo.threadinfo);
 	/* alloc once and reuse */
 	vnicinfo = container_of(dc, struct virtnic_info, datachan);
 	cmdrsp = kmalloc(SZ, GFP_ATOMIC);
-	if (cmdrsp == NULL) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** FAILED to malloc - thread exiting\n");
-		complete_and_exit(&dc->chinfo.threadinfo.has_stopped, 0);
-	}
+	if (cmdrsp == NULL)
+			complete_and_exit(&dc->chinfo.threadinfo.has_stopped,
+					  0);
+
 	p_channel_header = vnicinfo->datachan.chinfo.queueinfo->chan;
 	pqhdr =
 	       (struct signal_queue_header __iomem *)
@@ -1226,7 +1059,6 @@ process_incoming_rsps(void *v)
 	}
 
 	kfree(cmdrsp);
-	DBGINF("In process_incoming_nic_rsp exiting\n");
 	complete_and_exit(&dc->chinfo.threadinfo.has_stopped, 0);
 }
 
@@ -1237,11 +1069,6 @@ process_incoming_rsps(void *v)
 static int
 virtnic_change_mtu(struct net_device *netdev, int new_mtu)
 {
-	LOGERRNAME(netdev, "netdev->name <<%s>>", netdev->name);
-	LOGERRNAME(netdev, "**** FAILED: MTU cannot be changed at this end.\n");
-	LOGERRNAME(netdev, "The same MTU is used for all the PNICs and VNICs in a switch.\n");
-	LOGERRNAME(netdev, "Please change MTU from the Resource Partition\n");
-	LOGERRNAME(netdev, "Current MTU is: %d\n", netdev->mtu);
 	return -EINVAL;
 	/*
 	 * we cannot willy-nilly change the MTU; it has to come from
@@ -1260,13 +1087,8 @@ virtnic_close(struct net_device *netdev)
 	/* this is called on ifconfig down but also if the device is
 	 * being removed
 	 */
-	LOGINFNAME(netdev, "Closing %p name:%s\n", netdev, netdev->name);
-
 	netif_stop_queue(netdev);
 	virtnic_disable(netdev);
-
-	LOGINFNAME(netdev, "Closed:%p\n", netdev);
-
 	return 0;
 }
 
@@ -1283,36 +1105,11 @@ virtnic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 static int
 virtnic_open(struct net_device *netdev)
 {
-	struct virtnic_info *vnicinfo = netdev_priv(netdev);
-	void *p = (__force void *)netdev->ip_ptr;
-
-	LOGINFNAME(vnicinfo->netdev,
-		   "Opening %p name:%s allocating:%d rcvbufs mtu:%d\n", netdev,
-		   netdev->name, vnicinfo->num_rcv_bufs, netdev->mtu);
-
 	virtnic_enable(netdev);
 	/* start the interface's transmit queue, allowing it accept
 	 * packets for transmission
 	 */
 	netif_start_queue(netdev);
-
-	LOGINFNAME(vnicinfo->netdev,
-		   "Opened %p netdev->ip_ptr:%p name:%s %02x:%02x:%02x:%02x:%02x:%02x\n",
-		   netdev, netdev->ip_ptr, netdev->name, netdev->dev_addr[0],
-		   netdev->dev_addr[1], netdev->dev_addr[2],
-		   netdev->dev_addr[3], netdev->dev_addr[4],
-		   netdev->dev_addr[5]);
-
-	/*
-	 * temporary code to see trap to catch if vnic inet addresses
-	 * are getting trashed
-	 */
-	if (p != (__force void *)netdev->ip_ptr) {
-		LOGERRNAME(vnicinfo->netdev, "***********FAILURE HAPPENED\n");
-		LOGERRNAME(vnicinfo->netdev, "           Test to catch if vnic inet addresses are getting trashed.\n");
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(msecs_to_jiffies(1000));
-	}
 	return 0;
 }
 
@@ -1329,8 +1126,6 @@ repost_return(
 	int status = 0;
 
 	copy = cmdrsp->net.rcv;
-	LOGVER("REPOST_RETURN: realloc rcv skbs to replace:%d rcvbufs\n",
-	       copy.numrcvbufs);
 	switch (copy.numrcvbufs) {
 	case 0:
 		vnicinfo->n_rcv0++;
@@ -1350,8 +1145,6 @@ repost_return(
 			if (vnicinfo->rcvbuf[i] != copy.rcvbuf[cc])
 				continue;
 
-			LOGVER("REPOST_RETURN: orphaning old rcvbuf[%d]:%p cc=%d",
-			       i, vnicinfo->rcvbuf[i], cc);
 			vnicinfo->found_repost_rcvbuf_cnt++;
 			if ((skb) && vnicinfo->rcvbuf[i] == skb) {
 				found_skb = 1;
@@ -1359,34 +1152,24 @@ repost_return(
 			}
 			vnicinfo->rcvbuf[i] = alloc_rcv_buf(netdev);
 			if (!vnicinfo->rcvbuf[i]) {
-				LOGVER("**** %s FAILED to reallocate new rcv buf - no REPOST, found_skb=%d, cc=%d, i=%d\n",
-				       netdev->name, found_skb, cc, i);
 				vnicinfo->num_rcv_bufs_could_not_alloc++;
 				vnicinfo->alloc_failed_in_repost_return_cnt++;
 				status = -1;
 				break;
 			}
-			LOGVER("REPOST_RETURN: reposting new rcvbuf[%d]:%p\n",
-			       i, vnicinfo->rcvbuf[i]);
 			post_skb(cmdrsp, vnicinfo, vnicinfo->rcvbuf[i]);
 			numreposted++;
 			break;
 		}
 	}
-	LOGVER("REPOST_RETURN: num rcvbufs posted:%d\n", numreposted);
 	if (numreposted != copy.numrcvbufs) {
-		LOGVER("**** %s FAILED to repost all the rcv bufs; numreposted:%d rcv.numrcvbufs:%d\n",
-		       netdev->name, numreposted, copy.numrcvbufs);
 		vnicinfo->n_repost_deficit++;
 		status = -1;
 	}
 	if (skb) {
 		if (found_skb) {
-			LOGVER("REPOST_RETURN: skb is %p - freeing it", skb);
 			kfree_skb(skb);
 		} else {
-			LOGERRNAME(vnicinfo->netdev, "%s REPOST_RETURN: skb %p NOT found in rcvbuf list!!",
-				   netdev->name, skb);
 			status = -3;
 			vnicinfo->bad_rcv_buf++;
 		}
@@ -1417,10 +1200,7 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 	skb = cmdrsp->net.buf;
 	netdev = skb->dev;
 
-	if (netdev)
-		DBGINF("in virtnic_rx %p %s len:%d\n", netdev, netdev->name,
-		       cmdrsp->net.rcv.rcv_done_len);
-	else {
+	if (!netdev) {
 		/* We must have previously downed this network device and
 		 * this skb and device is no longer valid. This also means
 		 * the skb reference was removed from virtnic->rcvbuf so no
@@ -1455,11 +1235,8 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 		 * don't process it unless we're in enable mode and until
 		 * we've gotten an ACK saying the other end got our RCV enable
 		 */
-		LOGERRNAME(vnicinfo->netdev,
-			   "%s dropping packet - perhaps old\n", netdev->name);
 		spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
-		if (repost_return(cmdrsp, vnicinfo, skb, netdev) < 0)
-			LOGERRNAME(vnicinfo->netdev, "repost_return failed");
+		repost_return(cmdrsp, vnicinfo, skb, netdev);
 		return;
 	}
 
@@ -1477,12 +1254,7 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 	 */
 	if (skb->len > RCVPOST_BUF_SIZE) {	/* do PRECAUTIONARY check */
 		if (cmdrsp->net.rcv.numrcvbufs < 2) {
-			LOGERRNAME(vnicinfo->netdev, "**** %s Something is wrong; rcv_done_len:%d > RCVPOST_BUF_SIZE:%d but numrcvbufs:%d < 2\n",
-				   netdev->name, skb->len, RCVPOST_BUF_SIZE,
-				   cmdrsp->net.rcv.numrcvbufs);
-			if (repost_return(cmdrsp, vnicinfo, skb, netdev) < 0)
-				LOGERRNAME(vnicinfo->netdev,
-					   "repost_return failed");
+			repost_return(cmdrsp, vnicinfo, skb, netdev);
 			return;
 		}
 		/* length rcvd is greater than firstfrag in this skb rcv buf  */
@@ -1490,18 +1262,12 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 		skb->data_len = skb->len - RCVPOST_BUF_SIZE;	/* amount that
 								   will be in
 								   frag_list */
-		DBGINF("len:%d data:%d\n", skb->len, skb->data_len);
 	} else {
 		/*
 		 * data fits in this skb - no chaining - do PRECAUTIONARY check
 		 */
 		if (cmdrsp->net.rcv.numrcvbufs != 1) {	/* should be 1 */
-			LOGERRNAME(vnicinfo->netdev, "**** %s Something is wrong; rcv_done_len:%d <= RCVPOST_BUF_SIZE:%d but numrcvbufs:%d != 1\n",
-				   netdev->name, skb->len, RCVPOST_BUF_SIZE,
-				   cmdrsp->net.rcv.numrcvbufs);
-			if (repost_return(cmdrsp, vnicinfo, skb, netdev) < 0)
-				LOGERRNAME(vnicinfo->netdev,
-					   "repost_return failed");
+			repost_return(cmdrsp, vnicinfo, skb, netdev);
 			return;
 		}
 		skb->tail += skb->len;
@@ -1519,10 +1285,7 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 	 * - do PRECAUTIONARY check
 	 */
 	if (cmdrsp->net.rcv.rcvbuf[0] != skb) {
-		LOGERRNAME(vnicinfo->netdev, "**** %s Something is wrong; rcvbuf[0]:%p != skb:%p\n",
-			   netdev->name, cmdrsp->net.rcv.rcvbuf[0], skb);
-		if (repost_return(cmdrsp, vnicinfo, skb, netdev) < 0)
-			LOGERRNAME(vnicinfo->netdev, "repost_return failed");
+		repost_return(cmdrsp, vnicinfo, skb, netdev);
 		return;
 	}
 
@@ -1533,8 +1296,6 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 		     cc < cmdrsp->net.rcv.numrcvbufs; cc++) {
 			curr = (struct sk_buff *)cmdrsp->net.rcv.rcvbuf[cc];
 			curr->next = NULL;
-			DBGINF("chaining skb:%p data:%p to skb:%p data:%p\n",
-			       curr, curr->data, skb, skb->data);
 			if (prev == NULL)	/* start of list- set head */
 				skb_shinfo(skb)->frag_list = curr;
 			else
@@ -1552,28 +1313,6 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 			curr->data_len = 0;
 			off += currsize;
 		}
-#ifdef DEBUG
-		/* assert skb->len == off */
-		if (skb->len != off) {
-			LOGERRNAME(vnicinfo->netdev, "%s something wrong; skb->len:%d != off:%d\n",
-				   netdev->name, skb->len, off);
-		}
-		/* test code */
-		cc = util_copy_fragsinfo_from_skb("rcvchaintest", skb,
-						  RCVPOST_BUF_SIZE,
-						  MAX_PHYS_INFO, testfrags);
-		LOGINFNAME(vnicinfo->netdev, "rcvchaintest returned:%d\n", cc);
-		if (cc != cmdrsp->net.rcv.numrcvbufs) {
-			LOGERRNAME(vnicinfo->netdev, "**** %s Something wrong; rcvd chain length %d different from one we calculated %d\n",
-				   netdev->name, cmdrsp->net.rcv.numrcvbufs,
-				   cc);
-		}
-		for (i = 0; i < cc; i++) {
-			LOGINFNAME(vnicinfo->netdev, "test:RCVPOST_BUF_SIZE:%d[%d] pfn:%llu off:0x%x len:%d\n",
-				   RCVPOST_BUF_SIZE, i, testfrags[i].pi_pfn,
-				   testfrags[i].pi_off, testfrags[i].pi_len);
-		}
-#endif
 	}
 
 	/* set up packet's protocl type using ethernet header - this
@@ -1583,38 +1322,23 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 
 	eth = eth_hdr(skb);
 
-	DBGINF("%d Src:%02x:%02x:%02x:%02x:%02x:%02x Dest:%02x:%02x:%02x:%02x:%02x:%02x proto:%x\n",
-	       skb->pkt_type, eth->h_source[0], eth->h_source[1],
-	       eth->h_source[2], eth->h_source[3], eth->h_source[4],
-	       eth->h_source[5], eth->h_dest[0], eth->h_dest[1], eth->h_dest[2],
-	       eth->h_dest[3], eth->h_dest[4], eth->h_dest[5], eth->h_proto);
-
 	skb->csum = 0;
 	skb->ip_summed = CHECKSUM_NONE;	/* trust me, the checksum has
 					   been verified */
 
 	do {
-		if (netdev->flags & IFF_PROMISC) {
-			DBGINF("IFF_PROMISC is set.\n");
-			break;	/* accept all packets */
-		}
+		if (netdev->flags & IFF_PROMISC)
+				break;	/* accept all packets */
 		if (skb->pkt_type == PACKET_BROADCAST) {
-			DBGINF("packet is broadcast.\n");
 			if (netdev->flags & IFF_BROADCAST) {
-				DBGINF("IFF_BROADCAST is set.\n");
 				break;	/* accept all broadcast packets */
 			}
 		} else if (skb->pkt_type == PACKET_MULTICAST) {
-			DBGINF("packet is multicast.\n");
-			if (netdev->flags & IFF_ALLMULTI)
-				DBGINF("IFF_ALLMULTI is set.\n");
 			if ((netdev->flags & IFF_MULTICAST) &&
 			    (netdev_mc_count(netdev))) {
 				struct netdev_hw_addr *ha;
 				int found_mc = 0;
 
-				DBGINF("IFF_MULTICAST is set %d.\n",
-				       netdev_mc_count(netdev));
 				/*
 				 * only accept multicast packets that we can
 				 * find in our multicast address list
@@ -1623,7 +1347,6 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 					if (memcmp
 					    (eth->h_dest, ha->addr,
 					     MAX_MACADDR_LEN) == 0) {
-						DBGINF("multicast address is in our list at index:%i.\n", i);
 						found_mc = 1;
 						break;
 					}
@@ -1635,35 +1358,16 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 				}
 			}
 		} else if (skb->pkt_type == PACKET_HOST) {
-			DBGINF("packet is directed.\n");
 			break;	/* accept packet, h_dest must match vnic
 				   mac address */
-		} else if (skb->pkt_type == PACKET_OTHERHOST) {
-			/* something is not right */
-			LOGERRNAME(vnicinfo->netdev, "**** FAILED to deliver rcv packet to OS; name:%s Dest:%02x:%02x:%02x:%02x:%02x:%02x VNIC:%02x:%02x:%02x:%02x:%02x:%02x\n",
-				   netdev->name, eth->h_dest[0], eth->h_dest[1],
-				   eth->h_dest[2], eth->h_dest[3],
-				   eth->h_dest[4], eth->h_dest[5],
-				   netdev->dev_addr[0], netdev->dev_addr[1],
-				   netdev->dev_addr[2], netdev->dev_addr[3],
-				   netdev->dev_addr[4], netdev->dev_addr[5]);
 		}
 		/* drop packet - don't forward it up to OS */
-		DBGINF("we cannot indicate this recv pkt! (netdev->flags:0x%04x, skb->pkt_type:0x%02x).\n",
-		       netdev->flags, skb->pkt_type);
 		vnicinfo->n_rcv_packet_not_accepted++;
-		if (repost_return(cmdrsp, vnicinfo, skb, netdev) < 0)
-			LOGERRNAME(vnicinfo->netdev, "repost_return failed");
+		repost_return(cmdrsp, vnicinfo, skb, netdev);
 		return;
 	} while (0);
 
-	DBGINF("Calling netif_rx skb:%p head:%p end:%p data:%p tail:%p len:%d data_len:%d skb->nr_frags:%d\n",
-	       skb, skb->head, skb->end, skb->data, skb->tail, skb->len,
-	       skb->data_len, skb_shinfo(skb)->nr_frags);
-
 	status = netif_rx(skb);
-	if (status != NET_RX_SUCCESS)
-		LOGWRNNAME(vnicinfo->netdev, "status=%d\n", status);
 	/*
 	 * netif_rx returns various values, but "in practice most drivers
 	 * ignore the return value
@@ -1675,8 +1379,7 @@ virtnic_rx(struct uiscmdrsp *cmdrsp)
 	 * kernel code, so we shouldn't free it. but we should repost a
 	 * new rcv buffer.
 	 */
-	if (repost_return(cmdrsp, vnicinfo, skb, netdev) < 0)
-		LOGVER("repost_return failed");
+	repost_return(cmdrsp, vnicinfo, skb, netdev);
 	return;
 }
 
@@ -1703,22 +1406,15 @@ virtnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 }
 
 /* return value NETDEV_TX_OK == 0 */
-	DBGINF("got xmit for netdev:%p %s len:%d ip_summed:%d skb->data:%p data_len:%d skb->h.raw:%p maxdatalen:%d\n",
-	       netdev, netdev->name, skb->len, skb->ip_summed, skb->data,
-	       skb->data_len, skb->h.raw, skb->end - skb->data);
-
 	vnicinfo = netdev_priv(netdev);
 	spin_lock_irqsave(&vnicinfo->priv_lock, flags);
 	/*Modified for Trac #2395 FIX TEL_CKS */
-	if (netif_queue_stopped(netdev)) {
-		LOGINFNAME(vnicinfo->netdev,
-			   "Returning Busy because queue is stopped\n");
-		BUSY;
-	}
-	if (vnicinfo->server_down || vnicinfo->server_change_state) {
-		LOGINFNAME(vnicinfo->netdev, "Returning BUSY because server is down/changing state\n");
-		BUSY;
-	}
+	if (netif_queue_stopped(netdev))
+			BUSY;
+
+	if (vnicinfo->server_down || vnicinfo->server_change_state)
+			BUSY;
+
 	/*
 	 * sk_buff struct is used to host network data throughout all the
 	 * Linux network subsystems
@@ -1732,17 +1428,13 @@ virtnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	 * pointing to
 	 */
 	firstfraglen = skb->len - skb->data_len;
-	if (firstfraglen < ETH_HEADER_SIZE) {
-		LOGERRNAME(vnicinfo->netdev, "first fragment in skb->data too small for ethernet header len:%d data_len:%d\n",
-			   skb->len, skb->data_len);
-		BUSY;		/* NOT LIKELY TO HAPPEN */
-	}
+	if (firstfraglen < ETH_HEADER_SIZE)
+			BUSY;		/* NOT LIKELY TO HAPPEN */
 
 	if ((len < ETH_MIN_PACKET_SIZE) &&
 	    ((skb_end_pointer(skb) - skb->data) >= ETH_MIN_PACKET_SIZE)) {
 		/* pad the packet out to minimum size */
 		padlen = ETH_MIN_PACKET_SIZE - len;
-		DBGINF("padding %d\n", padlen);
 		memset(&skb->data[len], 0, padlen);
 		skb->tail += padlen;
 		skb->len += padlen;
@@ -1785,32 +1477,15 @@ virtnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 			vnicinfo->datachan.chstat.reject_jiffies_start =
 			    jiffies;
 #endif
-			LOGINFNAME(vnicinfo->netdev, "**** REJECTING NET_XMIT - rejected count=%ld chstat.sent_xmit=%lu chstat.got_xmit_done=%lu\n",
-				   vnicinfo->datachan.chstat.reject_count,
-				   vnicinfo->datachan.chstat.sent_xmit,
-				   vnicinfo->datachan.chstat.got_xmit_done);
 		}
 		netif_stop_queue(netdev);	/* calling stop queue */
 		BUSY;		/* return status that packet not accepted */
 	} else if (vnicinfo->queuefullmsg_logged) {
-#if VIRTNIC_STATS
-		LOGINFNAME(vnicinfo->netdev, "**** NET_XMITs now working again - rejected count = %ld msec = %ld\n",
-			   vnicinfo->datachan.chstat.reject_count,
-			   ((long)jiffies -
-			   (long)(vnicinfo->datachan.chstat.
-				    reject_jiffies_start)) * 1000 / HZ);
-#else
-		LOGINFNAME(vnicinfo->netdev, "**** NET_XMITs now working again - rejected count = %ld\n",
-			   vnicinfo->datachan.chstat.reject_count);
-#endif
 		/* queue is not blocked so reset the logging flag */
 		vnicinfo->queuefullmsg_logged = 0;
 	}
 
 	if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
-		DBGINF("CHECKSUM_HW protocol:%x csum:%x tso_size:%x data:%p h.raw:%p nh.raw:%p\n",
-		       skb->protocol, skb->csum, skb_shinfo(skb)->tso_size,
-		       skb->data, skb->h.raw, skb->nh.raw);
 		cmdrsp->net.xmt.lincsum.valid = 1;
 		cmdrsp->net.xmt.lincsum.protocol = skb->protocol;
 		if (skb_transport_header(skb) > skb->data) {
@@ -1843,12 +1518,9 @@ virtnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 					    MAX_PHYS_INFO,
 					    cmdrsp->net.xmt.frags);
 	if (cmdrsp->net.xmt.num_frags == -1) {
-		LOGERRNAME(vnicinfo->netdev, "**** FAILED to copy fragsinfo\n");
 		BUSY;		/* WILL HAPPEN ONLY IF FRAG ARRAY WITH
 				   MAX_PHYS_INFO ENTRIES IS NOT ENOUGH */
 	}
-
-	DBGINF("Forwarding packet cmdrsp:%p\n", cmdrsp);
 
 	/*
 	 * don't hold lock when forwarding xmit - if queue is full insert
@@ -1863,8 +1535,6 @@ virtnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 			"vnic");
 	if (!qrslt) {
 		/* failed to queue xmit - return busy */
-		LOGERRNAME(vnicinfo->netdev,
-			   "**** FAILED to insert NET_XMIT\n");
 		netif_stop_queue(netdev);	/* calling stop queue  */
 		BUSY;		/* return status that packet not accepted */
 	}
@@ -1925,9 +1595,6 @@ virtnic_serverdown_complete(struct work_struct *work)
 	netdev = vnicinfo->netdev;
 	virtpcidev = vnicinfo->virtpcidev;
 
-	DBGINF("virtpcidev busNo<<%d>>devNo<<%d>>", virtpcidev->busNo,
-	       virtpcidev->deviceNo);
-	DBGINF("net_device name<<%s>>", netdev->name);
 	/* Stop Using Datachan */
 	uisthread_stop(&vnicinfo->datachan.chinfo.threadinfo);
 
@@ -1954,9 +1621,6 @@ virtnic_serverdown_complete(struct work_struct *work)
 	atomic_set(&vnicinfo->num_rcv_bufs_in_iovm, 0);
 	spin_unlock_irqrestore(&vnicinfo->priv_lock, flags);
 
-	LOGINFNAME(vnicinfo->netdev, "Closed:%p Freed %d rcv bufs\n", netdev,
-		   count);
-
 	vnicinfo->server_down = true;
 	vnicinfo->server_change_state = false;
 	visorchipset_device_pause_response(virtpcidev->bus_no,
@@ -1970,22 +1634,13 @@ virtnic_serverdown(struct virtpci_dev *virtpcidev, u32 state)
 	struct net_device *netdev = virtpcidev->net.netdev;
 	struct virtnic_info *vnicinfo = netdev_priv(netdev);
 
-	DBGINF("virtpcidev busNo<<%d>>devNo<<%d>>", virtpcidev->busNo,
-	       virtpcidev->deviceNo);
-	DBGINF("entering virtnic_serverdown");
-
 	if (!vnicinfo->server_down && !vnicinfo->server_change_state) {
 		vnicinfo->server_change_state = true;
 		queue_work(virtnic_serverdown_workqueue,
 			   &vnicinfo->serverdown_completion);
 	} else if (vnicinfo->server_change_state) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "Server already processing change state message.");
 		return 0;
-	} else
-		LOGERRNAME(vnicinfo->netdev,
-			   "Server already down, but another server down message received.");
-	DBGINF("exiting virtnic_serverdown");
+	}
 	return 1;
 }
 
@@ -1997,10 +1652,6 @@ virtnic_serverup(struct virtpci_dev *virtpcidev)
 	struct virtnic_info *vnicinfo = netdev_priv(netdev);
 	unsigned long flags;
 
-	DBGINF("entering virtnic_serverup");
-	DBGINF("virtpcidev busNo<<%d>>devNo<<%d>>", virtpcidev->busNo,
-	       virtpcidev->deviceNo);
-	DBGINF("net_device name<<%s>>", netdev->name);
 	if (vnicinfo->server_down && !vnicinfo->server_change_state) {
 		vnicinfo->server_change_state = true;
 		/*
@@ -2016,8 +1667,6 @@ virtnic_serverup(struct virtpci_dev *virtpcidev)
 		if (!uisthread_start(&vnicinfo->datachan.chinfo.threadinfo,
 				     process_incoming_rsps,
 				     &vnicinfo->datachan, "vnic_incoming")) {
-			LOGERRNAME(vnicinfo->netdev,
-				   "**** FAILED to start thread\n");
 			return 0;
 		}
 
@@ -2043,13 +1692,8 @@ virtnic_serverup(struct virtpci_dev *virtpcidev)
 			    &vnicinfo->datachan.chinfo.insertlock,
 			    vnicinfo->datachan.chstat);
 	} else if (vnicinfo->server_change_state) {
-		LOGERRNAME(vnicinfo->netdev,
-			   "Server already processing change state message.");
 		return 0;
-	} else {
-		DBGINF("Server up message received for server that was already up.");
 	}
-	DBGINF("exiting virtnic_serverup");
 	return 1;
 }
 
@@ -2064,30 +1708,23 @@ virtnic_timeout_reset(struct work_struct *work)
 	vnicinfo = container_of(work, struct virtnic_info, timeout_reset);
 	netdev = vnicinfo->netdev;
 
-	DBGINF("net_device name<<%s>>", netdev->name);
 	/* Transmit Timeouts are typically handled by resetting the
 	 * device for our virtual NIC we will send a Disable and
 	 * Enable to the IOVM.  If it doesn't respond we will trigger
 	 * a serverdown
 	 */
-	DBGINF("Disabling connection to server.\n");
 	netif_stop_queue(netdev);
 	response = virtnic_disable_with_timeout(netdev, 100);
 	if (response != 0)
 		goto call_serverdown;
 
-	DBGINF("Disable returned so reenable connection to server.\n");
 	response = virtnic_enable_with_timeout(netdev, 100);
 	if (response != 0)
 		goto call_serverdown;
 	netif_wake_queue(netdev);
-
-	LOGWRNNAME(vnicinfo->netdev, "Virtual connection reset.\n");
 	return;
 
 call_serverdown:
-	LOGERRNAME(vnicinfo->netdev,
-		   "Disable/enabled Pair failed to return so start serverdown.\n");
 	virtpcidev = vnicinfo->virtpcidev;
 	virtnic_serverdown(virtpcidev, 0);
 	return;
@@ -2098,10 +1735,6 @@ virtnic_xmit_timeout(struct net_device *netdev)
 {
 	struct virtnic_info *vnicinfo = netdev_priv(netdev);
 	unsigned long flags;
-
-	LOGWRNNAME(vnicinfo->netdev,
-		   "Transmit Timeout.  Resetting virtual connection.\n");
-	LOGWRNNAME(vnicinfo->netdev, "net_device name<<%s>>", netdev->name);
 
 	spin_lock_irqsave(&vnicinfo->priv_lock, flags);
 	/* Ensure that a ServerDown message hasn't been received */
@@ -2121,27 +1754,14 @@ virtnic_set_multi(struct net_device *netdev)
 	struct uiscmdrsp *cmdrsp;
 	struct virtnic_info *vnicinfo = netdev_priv(netdev);
 
-	DBGINF("net_device name<<%s>>", netdev->name);
-	DBGINF("entering virtnic_set_multi\n");
-
 	/* any filtering changes? */
 	if (vnicinfo->old_flags != netdev->flags) {
-		LOGINFNAME(vnicinfo->netdev,
-			   "old filter = 0x%04x, new filter = 0x%04x.\n",
-			   vnicinfo->old_flags, netdev->flags);
 		if ((netdev->flags & IFF_PROMISC) !=
 		    (vnicinfo->old_flags & IFF_PROMISC)) {
-			LOGINFNAME(vnicinfo->netdev,
-				   "we are %s promiscuous mode.\n",
-				   (netdev->
-				    flags & IFF_PROMISC) ? "entering" :
-				   "exiting");
 			cmdrsp = kmalloc(SIZEOF_CMDRSP, GFP_ATOMIC);
-			if (cmdrsp == NULL) {
-				LOGERRNAME(vnicinfo->netdev,
-					   "**** FAILED to kmalloc cmdrsp.\n");
-				return;
-			}
+			if (cmdrsp == NULL)
+					return;
+
 			memset(cmdrsp, 0, SIZEOF_CMDRSP);
 			cmdrsp->cmdtype = CMD_NET_TYPE;
 			cmdrsp->net.type = NET_RCV_PROMISC;
@@ -2155,15 +1775,12 @@ virtnic_set_multi(struct net_device *netdev)
 			     DONT_ISSUE_INTERRUPT, (uint64_t)NULL,
 			     0 /* don't wait */ , "vnic")) {
 				vnicinfo->datachan.chstat.sent_promisc++;
-			} else
-				LOGERRNAME(vnicinfo->netdev,
-					   "**** FAILED to insert NET_RCV_PROMISC.\n");
+			}
 			kfree(cmdrsp);
 		}
 
 		vnicinfo->old_flags = netdev->flags;
 	}
-	DBGINF("exiting virtnic_set_multi\n");
 }
 
 /*****************************************************/
@@ -2342,18 +1959,14 @@ static ssize_t enable_ints_write(struct file *file,
 		return -EINVAL;
 
 	buf[count] = '\0';
-	if (copy_from_user(buf, buffer, count)) {
-		LOGERR("copy_from_user failed.\n");
-		return -EFAULT;
-	}
+	if (copy_from_user(buf, buffer, count))
+			return -EFAULT;
+
 
 	i = kstrtoint(buf, 10 , &new_value);
 
-	if (i != 0) {
-		LOGERR("Failed to scan value for enable_ints, buf<<%.*s>>",
-		       (int)count, buf);
-		return -EFAULT;
-	}
+	if (i != 0)
+			return -EFAULT;
 
 	 /* set all counts to new_value usually 0 */
 	for (i = 0; i < VIRTNICSOPENMAX; i++) {
@@ -2394,19 +2007,13 @@ virtnic_mod_init(void)
 {
 	int error, i;
 
-	LOGINF("entering virtnic_mod_init");
 	/* ASSERT RCVPOST_BUF_SIZE < 4K */
-	if (RCVPOST_BUF_SIZE > PI_PAGE_SIZE) {
-		LOGERR("**** FAILED RCVPOST_BUF_SIZE:%d larger than a page\n",
-		       RCVPOST_BUF_SIZE);
-		return -1;
-	}
+	if (RCVPOST_BUF_SIZE > PI_PAGE_SIZE)
+			return -1;
+
 	/* ASSERT RCVPOST_BUF_SIZE is big enough to hold eth header */
-	if (RCVPOST_BUF_SIZE < ETH_HEADER_SIZE) {
-		LOGERR("**** FAILED RCVPOST_BUF_SIZE:%d is < ETH_HEADER_SIZE:%d\n",
-		       RCVPOST_BUF_SIZE, ETH_HEADER_SIZE);
-		return -1;
-	}
+	if (RCVPOST_BUF_SIZE < ETH_HEADER_SIZE)
+			return -1;
 
 	/* clear out array */
 	for (i = 0; i < VIRTNICSOPENMAX; i++) {
@@ -2416,18 +2023,15 @@ virtnic_mod_init(void)
 	/* create workqueue for serverdown completion */
 	virtnic_serverdown_workqueue =
 	    create_singlethread_workqueue("virtnic_serverdown");
-	if (virtnic_serverdown_workqueue == NULL) {
-		LOGERR("**** FAILED virtnic_serverdown_workqueue creation\n");
-		return -1;
-	}
+	if (virtnic_serverdown_workqueue == NULL)
+			return -1;
+
 	/* create workqueue for tx timeout reset  */
 	virtnic_timeout_reset_workqueue =
 	    create_singlethread_workqueue("virtnic_timeout_reset");
-	if (virtnic_timeout_reset_workqueue == NULL) {
-		LOGERR
-		    ("**** FAILED virtnic_timeout_reset_workqueue creation\n");
+	if (virtnic_timeout_reset_workqueue == NULL)
 		return -1;
-	}
+
 	virtnic_debugfs_dir = debugfs_create_dir("virtnic", NULL);
 	debugfs_create_file("info", S_IRUSR, virtnic_debugfs_dir,
 			    NULL, &debugfs_info_fops);
@@ -2437,18 +2041,15 @@ virtnic_mod_init(void)
 
 	error = virtpci_register_driver(&virtnic_driver);
 	if (error < 0) {
-		LOGERR("**** FAILED to register driver %x\n", error);
 		debugfs_remove_recursive(virtnic_debugfs_dir);
 		return -1;
 	}
-	LOGINF("exiting virtnic_mod_init");
 	return error;
 }
 
 static void __exit
 virtnic_mod_exit(void)
 {
-	LOGINF("entering virtnic_mod_exit...\n");
 	virtpci_unregister_driver(&virtnic_driver);
 	/* unregister is going to call virtnic_remove for all devices */
 	/* destroy serverdown completion workqueue */
@@ -2464,7 +2065,6 @@ virtnic_mod_exit(void)
 	}
 
 	debugfs_remove_recursive(virtnic_debugfs_dir);
-	LOGINF("exiting virtnic_mod_exit...\n");
 }
 
 module_init(virtnic_mod_init);

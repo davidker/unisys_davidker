@@ -405,19 +405,22 @@ signalremove_inner(struct visorchannel *channel, u32 queue, void *msg)
 		return FALSE;	/* no signals to remove */
 
 	sig_hdr.tail = (sig_hdr.tail + 1) % sig_hdr.max_slots;
-	if (!sig_read_data(channel, queue, &sig_hdr, sig_hdr.tail, msg)) {
+	if (!sig_read_data(channel, queue, &sig_hdr, sig_hdr.tail, msg))
 		return FALSE;
-	}
+
 	sig_hdr.num_received++;
 
 	/* For each data field in SIGNAL_QUEUE_HEADER that was modified,
 	 * update host memory.
 	 */
 	mb(); /* required for channel synch */
+
 	if (!SIG_WRITE_FIELD(channel, queue, &sig_hdr, tail))
 		return FALSE;
+
 	if (!SIG_WRITE_FIELD(channel, queue, &sig_hdr, num_received))
 		return FALSE;
+
 	return TRUE;
 }
 
@@ -449,18 +452,12 @@ signalinsert_inner(struct visorchannel *channel, u32 queue, void *msg)
 	sig_hdr.head = ((sig_hdr.head + 1) % sig_hdr.max_slots);
 	if (sig_hdr.head == sig_hdr.tail) {
 		sig_hdr.num_overflows++;
-		visor_memregion_write(channel->memregion,
-				      SIG_QUEUE_OFFSET(&channel->chan_hdr,
-						       queue) +
-				      offsetof(struct signal_queue_header,
-					       num_overflows),
-				      &(sig_hdr.num_overflows),
-				      sizeof(sig_hdr.num_overflows));
-		return FALSE;
+		if (!SIG_WRITE_FIELD(channel, queue, &sig_hdr, num_overflows))
+			return FALSE;
 	}
 
 	if (!sig_write_data(channel, queue, &sig_hdr, sig_hdr.head, msg))
-		return FALSE;
+			return FALSE;
 
 	sig_hdr.num_sent++;
 
@@ -469,10 +466,10 @@ signalinsert_inner(struct visorchannel *channel, u32 queue, void *msg)
 	 */
 	mb(); /* required for channel synch */
 	if (!SIG_WRITE_FIELD(channel, queue, &sig_hdr, head))
-		return FALSE;
-	if (!SIG_WRITE_FIELD(channel, queue, &sig_hdr, num_sent)) {
-		return FALSE;
-	}
+			return FALSE;
+
+	if (!SIG_WRITE_FIELD(channel, queue, &sig_hdr, num_sent))
+			return FALSE;
 
 	return TRUE;
 }

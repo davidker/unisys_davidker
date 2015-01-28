@@ -17,7 +17,6 @@
 
 #include "visordiag_private.h"
 #include "easyproc.h"
-#include "uniklog.h"
 #include "diagnostics/appos_subsystems.h"
 #include "uisutils.h"
 #include <linux/time.h>
@@ -35,7 +34,6 @@
 #define MAX_THROTTLE_TRIES 1200	/* (1200 * .25 sec = 5 min) */
 static ulong visordiag_channeladdress;
 static int visordiag_major;
-static int visordiag_debugref;
 
 static spinlock_t devnopool_lock;
 static void *dev_no_pool;	/**< pool to grab device numbers from */
@@ -282,32 +280,16 @@ register_devdata_attributes(struct visor_device *dev)
 		pattr[i].show = devdata_property_show;
 		pattr[i].store = NULL;
 		rc = device_create_file(&dev->device, &pattr[i]);
-		if (rc < 0) {
-			ERRDRV("device_create_file(&dev->device, &pattr[i]) failed: (status=%d)\n",
-			       rc);
-			goto away;
-		}
+		if (rc < 0)
+				return rc;
 	}
-
-	rc = 0;
-away:
 	return rc;
 }
 
 static int
 register_device_attributes(struct visor_device *dev)
 {
-	int rc;
-
-	rc = register_devdata_attributes(dev);
-	if (rc < 0) {
-		ERRDRV("register_devdata_attributes(dev) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
-	rc = 0;
-away:
-	return rc;
+	return register_devdata_attributes(dev);
 }
 
 static int
@@ -339,20 +321,17 @@ devdata_create(struct visor_device *dev)
 
 	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
-	if (devdata == NULL) {
-		ERRDRV("allocation of visordiag_devdata failed: (status=0)\n");
-		goto away;
-	}
+	if (devdata == NULL)
+			goto away;
+
 	memset(devdata, '\0', sizeof(struct visordiag_devdata));
 	cdev_init(&devdata->cdev_diag, NULL);
 	spin_lock(&devnopool_lock);
 	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
 	set_bit(devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
-	if (devno < 0) {
-		ERRDRV("attempt to create more than MAXDEVICES devices: (status=0)\n");
-		goto away;
-	}
+	if (devno < 0)
+			goto away;
 
 	devdata->devno = devno;
 	devdata->dev = dev;
@@ -370,37 +349,21 @@ devdata_create(struct visor_device *dev)
 					      devdata->devno, /* start minor */
 					      NCHARDEVICES,   /* count */
 					      MYDRVNAME);
-		if (errcode < 0) {
-			ERRDRV("alloc_chrdev_region(start_minor=%d) failed with err=%d\n",
-			       devdata->devno, errcode);
-			ERRDRV("Unable to alloc+register dynamic char device: (status=0)\n");
-			goto away;
-		}
+		if (errcode < 0)
+				goto away;
 		devdata->char_device_registered = TRUE;
-		INFODRV("New major number %d registered\n",
-			MAJOR(devdata->devt));
 	} else {
 		/* static major device number registration required */
 		devdata->devt = MKDEV(visordiag_major, devdata->devno);
 		errcode = register_chrdev_region(devdata->devt,
 						 NCHARDEVICES, MYDRVNAME);
-		if (errcode < 0) {
-			ERRDRV("register_chrdev_region(devt=%d,%d) failed with err=%d\n",
-			       visordiag_major, devdata->devno, errcode);
-			ERRDRV("Unable to register static char device: (status=0)\n");
-			goto away;
-		}
+		if (errcode < 0)
+				goto away;
 		devdata->char_device_registered = TRUE;
-		INFODRV("Static major number %d registered\n",
-			MAJOR(devdata->devt));
 	}
 	errcode = cdev_add(&devdata->cdev_diag, devdata->devt, NCHARDEVICES);
-	if (errcode < 0) {
-		ERRDRV("cdev_add(maj=%d, min=%d) failed with err=%d\n",
-		       MAJOR(devdata->devt), MINOR(devdata->devt), errcode);
-		ERRDRV("failed to create char devices: (status=0)\n");
-		goto away;
-	}
+	if (errcode < 0)
+			goto away;
 	for (i = CHRDEV_FIRST; i < CHRDEV_LASTPLUS1; i++) {
 		devdata->char_devices[i].platform_device =
 		    visordiag_platform_device_template;
@@ -410,13 +373,8 @@ devdata_create(struct visor_device *dev)
 		    MKDEV(MAJOR(devdata->devt), devdata->devno + i);
 		errcode = platform_device_register(&devdata->char_devices[i]
 						   .platform_device);
-		if (errcode < 0) {
-			ERRDRV("platform_device_register(dev#=%d, id=%d, maj=%d, min=%d) failed with err=%d\n",
-			       i, devdata->devno + i, MAJOR(devdata->devt),
-			       devdata->devno + i, errcode);
-			ERRDRV("visordiag failed to register platform devices: (status=0)\n");
-			goto away;
-		}
+		if (errcode < 0)
+				goto away;
 		devdata->char_devices[i].platform_device_registered = TRUE;
 	}
 
@@ -473,7 +431,6 @@ devdata_release(struct kref *mykref)
 {
 	struct visordiag_devdata *devdata =
 		container_of(mykref, struct visordiag_devdata, kref);
-	INFODRV("%s", __func__);
 	spin_lock(&devnopool_lock);
 	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
@@ -482,7 +439,6 @@ devdata_release(struct kref *mykref)
 	spin_unlock(&lock_all_devices);
 	free_char_devices(devdata);
 	kfree(devdata);
-	INFODRV("%s finished", __func__);
 }
 
 static void
@@ -506,8 +462,6 @@ visordiag_probe(struct visor_device *dev)
 
 	struct spar_diag_channel_protocol __iomem *p = NULL;
 
-	INFODRV("%s", __func__);
-
 	devdata = devdata_create(dev);
 	if (devdata == NULL) {
 		rc = -1;
@@ -515,7 +469,6 @@ visordiag_probe(struct visor_device *dev)
 	}
 	if (!SPAR_DIAG_CHANNEL_OK_CLIENT(
 			visorchannel_get_header(dev->visorchannel))) {
-		ERRDRV("diag channel cannot be used: (status=-1)\n");
 		rc = -1;
 		goto away;
 	}
@@ -537,14 +490,12 @@ visordiag_probe(struct visor_device *dev)
 
 	visor_set_drvdata(dev, devdata);
 	if (register_device_attributes(dev) < 0) {
-		ERRDRV("register_device_attributes failed: (status=-1)\n");
 		rc = -1;
 		goto away;
 	}
 	visordiag_online(devdata);
 
 away:
-	INFODRV("%s finished", __func__);
 	if (rc < 0) {
 		if (devdata != NULL)
 			devdata_put(devdata);
@@ -557,31 +508,22 @@ visordiag_remove(struct visor_device *dev)
 {
 	struct visordiag_devdata *devdata = visor_get_drvdata(dev);
 
-	INFODRV("%s", __func__);
-	if (devdata == NULL) {
-		ERRDRV("no devdata in %s", __func__);
-		goto away;
-	}
+	if (devdata == NULL)
+			return;
+
 	visordiag_offline(devdata);
 	unregister_device_attributes(dev);
 	visor_set_drvdata(dev, NULL);
 	host_side_disappeared(devdata);
 	kref_put(&devdata->kref, devdata_release);
-
-away:
-	INFODRV("%s finished", __func__);
 }
 
 static void
 destroy_visor_device(struct visor_device *dev)
 {
-	char s[99];
-
 	if (dev == NULL)
 		return;
 	if (dev->visorchannel != NULL) {
-		INFODRV("Channel %s disconnected",
-			visorchannel_id(dev->visorchannel, s));
 		visorchannel_destroy(dev->visorchannel);
 		dev->visorchannel = NULL;
 	}
@@ -593,7 +535,6 @@ simplebus_release_device(struct device *xdev)
 {
 	struct visor_device *dev = to_visor_device(xdev);
 
-	INFODEV(dev_name(&dev->device), "child device destroyed");
 	destroy_visor_device(dev);
 }
 
@@ -604,24 +545,17 @@ create_visor_device(u64 addr)
 	struct visorchannel *visorchannel = NULL;
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE;
-	char s[99];
 	uuid_le guid = SPAR_DIAG_CHANNEL_PROTOCOL_UUID;
 
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	visorchannel = visorchannel_create(addr, DIAG_CH_SIZE, guid);
-	if (visorchannel == NULL) {
-		ERRDRV("channel addr = 0x%-16.16Lx", addr);
-		ERRDRV("visorchannel_create failed: (status=0)\n");
-		goto away;
-	}
+	if (visorchannel == NULL)
+			goto away;
 
-	INFODRV("Channel %s discovered and connected",
-		visorchannel_id(visorchannel, s));
 	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
-	if (dev == NULL) {
-		ERRDRV("failed to allocate visor_device: (status=0)\n");
-		goto away;
-	}
+	if (dev == NULL)
+			goto away;
+
 	memset(dev, 0, sizeof(struct visor_device));
 	dev->visorchannel = visorchannel;
 	sema_init(&dev->visordriver_callback_lock, 1);	/* unlocked */
@@ -638,15 +572,10 @@ create_visor_device(u64 addr)
 	 */
 	dev_set_name(&dev->device, "visordiag");
 
-	if (device_add(&dev->device) < 0) {
-		ERRDRV("device_add failed: (status=0)\n");
-		goto away;
-	}
+	if (device_add(&dev->device) < 0)
+			goto away;
+
 	/* note: device_register is simply device_initialize + device_add */
-
-	INFODEV(dev_name(&dev->device),
-		"child device 0x%p created", &dev->device);
-
 	rc = dev;
 away:
 	if (rc == NULL) {
@@ -687,46 +616,29 @@ visordiag_init(void)
 	int rc = -1;
 	u64 diag_addr = 0;
 
-	INFODRV("driver version %s loaded", VERSION);
-	/* uintpool_test(); */
-	INFODRV("Options:");
-	INFODRV("         visordiag_channeladdress=0x%lx",
-		visordiag_channeladdress);
-	INFODRV("         major=%d", visordiag_major);
-	INFODRV("         debugref=%d", visordiag_debugref);
-
 	spin_lock_init(&devnopool_lock);
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (dev_no_pool == NULL) {
-		ERRDRV("Unable to create dev_no_pool");
-		goto away;
-	}
+	if (dev_no_pool == NULL)
+			goto away;
+
 	rc = bus_register(&simplebus_type);
-	if (rc < 0) {
-		ERRDRV("bus_register(&simplebus_type) failed: (status=%d)\n",
-		       rc);
-		goto away;
-	}
+	if (rc < 0)
+			goto away;
+
 	if (!visordiag_channeladdress) {
-		INFODRV("channeladdress module/kernel parameter not specified so issue vmcall");
 		if (!VMCALL_SUCCESSFUL(issue_vmcall_io_diag_addr(&diag_addr))) {
-			ERRDRV("channeladdress module/kernel parameter not specified and vmcall failed.");
 			rc = -1;
 			goto away;
 		}
-		INFODRV("diag addr=%llx", diag_addr);
 		visordiag_channeladdress = diag_addr;
 	}
 	standalone_device =
 	    create_visor_device(visordiag_channeladdress);
 	if (standalone_device == NULL) {
-		ERRDRV("failed to initialize channel @ 0x%lx",
-		       visordiag_channeladdress);
 		rc = -1;
 		goto away;
 	}
 	if (visordiag_probe(standalone_device) < 0) {
-		ERRDRV("probe failed");
 		put_visordev(standalone_device, "create", visordiag_debugref);
 		device_unregister(&standalone_device->device);
 		standalone_device = NULL;
@@ -746,7 +658,6 @@ visordiag_cleanup(void)
 {
 	subsystem_severity_filter_global = NULL;
 	visordiag_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 /* Send ACTION=online for DEVPATH=/sys/devices/platform/visordiag. */
@@ -1122,10 +1033,9 @@ new_message_to_host(void *context, struct diag_channel_event *event)
 	int tries = 0;
 	unsigned long long cur_cycles, elapsed_cycles;
 
-	if (devdata->dev == NULL) {
-		HUHDRV("dev is NULL in %s??", __func__);
-		return;
-	}
+	if (devdata->dev == NULL)
+			return;
+
 	if (devdata->last_send_was_good) {
 		devdata->start_cycles = (unsigned long long)get_cycles();
 		tries = MSGRETRYMAX;
@@ -1145,8 +1055,6 @@ new_message_to_host(void *context, struct diag_channel_event *event)
 		if (!devdata->last_send_was_good) {
 			cur_cycles = (unsigned long long)get_cycles();
 			elapsed_cycles = cur_cycles - devdata->start_cycles;
-			INFODEV(devdata->name, "Was blocked, but now is going again dropped_msg_cnt=%u, elapsed_cycles=%llu\n",
-				devdata->dropped_msg_cnt, elapsed_cycles);
 		}
 		devdata->dropped_msg_cnt = 0;
 		devdata->last_send_was_good = TRUE;
@@ -1169,17 +1077,11 @@ host_side_disappeared(struct visordiag_devdata *devdata)
 static void
 first_file_opened(struct visordiag_filedata *filedata)
 {
-	struct visordiag_devdata *devdata = filedata->devdata;
-
-	INFODEV(devdata->name, "lights on");
 }
 
 static void
 last_file_closed(struct visordiag_filedata *filedata)
 {
-	struct visordiag_devdata *devdata = filedata->devdata;
-
-	INFODEV(devdata->name, "lights off");
 }
 
 static int
@@ -1193,18 +1095,12 @@ visordiag_file_open(struct inode *inode, struct file *file)
 
 	list_for_each_entry(devdata, &list_all_devices, list_all) {
 		if (MAJOR(devdata->devt) == major_number) {
-			DEBUGDEV(devdata->name,
-				 "%s minor=%d", __func__, minor_number);
 			if (minor_number >= NCHARDEVICES) {
-				ERRDRV("minor number is too large: (status=%d)\n",
-				       -ENODEV);
 				rc = -ENODEV;
 				goto away;
 			}
 			filedata = create_file(devdata, minor_number);
 			if (filedata == NULL) {
-				ERRDRV("cannot alloc file data: (status=%d)\n",
-				       -ENOMEM);
 				rc = -ENOMEM;
 				goto away;
 			}
@@ -1224,15 +1120,9 @@ visordiag_file_open(struct inode *inode, struct file *file)
 	}
 	rc = -ENODEV;
 away:
-	if (rc < 0) {
-		ERRDRV("%s minor=%d failed", __func__, minor_number);
-	} else {
-		if (file->f_mode & FMODE_WRITE) {
-			INFODEV(devdata->name,
-				"syslogd opened visordiag.%d - disabling primitive message logging",
-				minor_number);
-			SVLOG_ENABLE(0);
-		}
+	if (rc >= 0) {
+		if (file->f_mode & FMODE_WRITE)
+				SVLOG_ENABLE(0);
 	}
 	return rc;
 }
@@ -1245,17 +1135,12 @@ visordiag_file_release(struct inode *inode, struct file *file)
 	    (struct visordiag_filedata *)(file->private_data);
 	struct visordiag_devdata *devdata = NULL;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=-1)\n");
-		goto away;
-	}
-	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=-1)\n");
-		goto away;
-	}
+	if (filedata == NULL)
+			goto away;
 
-	DEBUGDEV(devdata->name, "%s", __func__);
+	devdata = filedata->devdata;
+	if (devdata == NULL)
+			goto away;
 
 	/* If this is the Platform Diagnostic device then write a zero
 	 * length record which will be used as an indication of end-of-file.
@@ -1277,9 +1162,6 @@ visordiag_file_release(struct inode *inode, struct file *file)
 away:
 	if (rc >= 0) {
 		if (file->f_mode & FMODE_WRITE) {
-			INFODEV(devdata->name,
-				"syslogd closed visordiag.%d - enabling primitive message logging",
-				iminor(inode));
 			SVLOG_ENABLE(1);
 		}
 	}
@@ -1324,35 +1206,30 @@ visordiag_file_write_guts(struct file *file,
 			  const char __user *buf,
 			  size_t count, loff_t *ppos, int default_pri)
 {
-	int rc = -1, i = 0;
+	int i = 0;
 	struct visordiag_filedata *filedata =
 	    (struct visordiag_filedata *)(file->private_data);
 	struct visordiag_devdata *devdata = NULL;
 	struct diag_channel_event event;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file\n");
-		goto away;
-	}
+	if (filedata == NULL)
+			return -1;
+
 	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device\n");
-		goto away;
-	}
-	DEBUGDEV(devdata->name, "%s", __func__);
+	if (devdata == NULL)
+			return -1;
+
 	if (count > (NFILEWRITEBYTESTOBUFFER - filedata->nbuf))
 		count = NFILEWRITEBYTESTOBUFFER - filedata->nbuf;
-	if (copy_from_user(filedata->buf + filedata->nbuf, buf, count)) {
-		rc = -EFAULT;
-		goto away;
-	}
+	if (copy_from_user(filedata->buf + filedata->nbuf, buf, count))
+		return -EFAULT;
+
 	devdata->counter.umode_bytes_in += count;
 	filedata->nbuf += count;
 	down_read(&devdata->lock_visor_dev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
 		up_read(&devdata->lock_visor_dev);
-		rc = 0;	/* eof */
-		goto away;
+		return 0;
 	}
 	i = 0;
 	while (i < filedata->nbuf) {
@@ -1379,11 +1256,7 @@ visordiag_file_write_guts(struct file *file,
 	filedata->nbuf -= i;
 
 	up_read(&devdata->lock_visor_dev);
-
-	rc = count;
-away:
-	DEBUGDEV(devdata->name, "%s wrote %d", __func__, count);
-	return rc;
+	return count;
 }
 
 /*
@@ -1411,33 +1284,22 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 	int slots_avail, max_slots;
 	BOOL timed_out = FALSE;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto away;
-	}
+	if (filedata == NULL)
+			goto away;
+
 	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto away;
-	}
-	DEBUGDEV(devdata->name, "%s", __func__);
+	if (devdata == NULL)
+			goto away;
 
 	/* If data exceeds the size of the buffer (should never
 	 * happen) return an error.
 	 */
-	if (count > sizeof(event.additional_info)) {
-		ERRDEV(devdata->name,
-		       "%s failed. Num of chars (%d) exceeded limit of %d.\n",
-		       __func__, (int)count,
-		       (int)sizeof(event.additional_info));
-		rc = -EFAULT;
-		goto away;
-	}
+	if (count > sizeof(event.additional_info))
+			goto away;
 
 	devdata->counter.umode_bytes_in += count;
 	down_read(&devdata->lock_visor_dev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
-		INFODEV(devdata->name, "Host channel is gone.");
 		up_read(&devdata->lock_visor_dev);
 		rc = 0;	/* eof */
 		goto away;
@@ -1452,8 +1314,6 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 					 * device. Zero value marks end-of-file
 					 * being transferred. */
 	if (copy_from_user(event.additional_info, buf, count)) {
-		ERRDEV(devdata->name, "%s failed. copy_from_user call returned non-zero result.\n",
-		       __func__);
 		up_read(&devdata->lock_visor_dev);
 		rc = -EFAULT;
 		goto away;
@@ -1490,14 +1350,11 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 					devdata->dev->visorchannel,
 					devdata->xmitqueue);
 		}
-		INFODEV(devdata->name, "Throttling of msgs going to diag channel occurred.  throttled_count = %d, timed_out=%d.",
-			throttled_count, timed_out);
 	}
 
 	if (!timed_out) {
 		new_message_to_host(devdata, &event);
 	} else {
-		INFODEV(devdata->name, "File transfer has timed out.");
 		up_read(&devdata->lock_visor_dev);
 		rc = -EAGAIN;
 		goto away;
@@ -1507,15 +1364,12 @@ visordiag_file_xfer(struct file *file, const char __user *buf,
 away:
 	if (rc > 0)
 		filedata->offset += rc;
-	DEBUGDEV(devdata->name, "%s wrote %d", __func__, rc);
 	return rc;
 }
 
 static int
 visordiag_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	int rc;
-
 	ulong offset = vma->vm_pgoff << PAGE_SHIFT;
 	ulong phys_addr = 0;
 	pgprot_t pgprot;
@@ -1523,29 +1377,18 @@ visordiag_mmap(struct file *file, struct vm_area_struct *vma)
 	    (file->private_data);
 	struct visordiag_devdata *devdata = NULL;
 
-	if (filedata == NULL) {
-		rc = -1;
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto away;
-	}
+	if (filedata == NULL)
+			return -1;
+
 	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		rc = -1;
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto away;
-	}
+	if (devdata == NULL)
+			return -1;
 
-	if (pgprot_val(vma->vm_page_prot) != pgprot_val(PAGE_READONLY)) {
-		rc = -EACCES;
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto away;
-	}
+	if (pgprot_val(vma->vm_page_prot) != pgprot_val(PAGE_READONLY))
+			return -EACCES;
 
-	if (offset & (PAGE_SIZE - 1)) {
-		rc = -ENXIO;
-		ERRDRV("need aligned mmap offset: (status=%d)\n", rc);
-		goto away;
-	}
+	if (offset & (PAGE_SIZE - 1))
+			return -ENXIO;
 
 	switch (offset) {
 	case VISORDIAG_MMAP_CHANNEL_OFF:
@@ -1561,20 +1404,14 @@ visordiag_mmap(struct file *file, struct vm_area_struct *vma)
 				       phys_addr >> PAGE_SHIFT,
 				       vma->vm_end - vma->vm_start,
 				       vma->vm_page_prot)) {
-			rc = -EAGAIN;
-			ERRDRV("io_remap_pfn_range failed: (status=%d)\n", rc);
-			goto away;
+			return -EAGAIN;
 		}
 		break;
 	default:
-		rc = -ENOSYS;
-		ERRDRV("invalid offset: (status=%d)\n", rc);
-		goto away;
+		return -ENOSYS;
 	}
 
-	rc = 0;
-away:
-	return rc;
+	return 0;
 }
 
 module_param_named(channeladdress, visordiag_channeladdress,

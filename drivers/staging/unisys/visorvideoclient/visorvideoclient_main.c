@@ -24,7 +24,6 @@
  * RUNNING.
  */
 
-#include "uniklog.h"
 #include "diagnostics/appos_subsystems.h"
 #include "timskmod.h"
 #include "globals.h"
@@ -104,24 +103,18 @@ static LIST_HEAD(list_all_devices);
 static DEFINE_SPINLOCK(lock_all_devices);
 
 #define devdata_put(devdata, why)					\
-	do {								\
+	{								\
 		int refcount;						\
 		kref_put(&devdata->kref, devdata_release);		\
 		refcount = atomic_read(&devdata->kref.refcount);	\
-		if (visorvideoclient_debugref)				\
-			VISORBUS_DEBUG_REFCOUNT_CHANGE			\
-				(refcount+1, refcount, devdata, why);	\
-	} while (0)
+	}
 
 #define devdata_get(devdata, why)					\
-	do {								\
+	{								\
 		int refcount;						\
 		kref_get(&devdata->kref);				\
 		refcount = atomic_read(&devdata->kref.refcount);	\
-		if (visorvideoclient_debugref)				\
-			VISORBUS_DEBUG_REFCOUNT_CHANGE			\
-				(refcount-1, refcount, devdata, why);	\
-	} while (0)
+	}
 
 static struct visorvideoclient_devdata *
 devdata_create(struct visor_device *dev)
@@ -132,10 +125,9 @@ devdata_create(struct visor_device *dev)
 
 	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
-	if (devdata == NULL) {
-		ERRDRV("allocation of visorvideoclient_devdata failed)\n");
-		goto cleanups;
-	}
+	if (devdata == NULL)
+			goto cleanups;
+
 	memset(devdata, '\0', sizeof(struct visorvideoclient_devdata));
 	spin_lock(&devnopool_lock);
 	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
@@ -143,10 +135,9 @@ devdata_create(struct visor_device *dev)
 	spin_unlock(&devnopool_lock);
 	if (devno == MAXDEVICES)
 		devno = -1;
-	if (devno < 0) {
-		ERRDRV("attempt to create more than MAXDEVICES devices\n");
-		goto cleanups;
-	}
+	if (devno < 0)
+			goto cleanups;
+
 	devdata->devno = devno;
 	devdata->dev = dev;
 	strncpy(devdata->name, dev_name(&dev->device), sizeof(devdata->name));
@@ -175,7 +166,6 @@ devdata_release(struct kref *mykref)
 	struct visorvideoclient_devdata *devdata =
 	    container_of(mykref, struct visorvideoclient_devdata, kref);
 
-	INFODRV("%s", __func__);
 	spin_lock(&devnopool_lock);
 	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&devnopool_lock);
@@ -183,31 +173,18 @@ devdata_release(struct kref *mykref)
 	list_del(&devdata->list_all);
 	spin_unlock(&lock_all_devices);
 	kfree(devdata);
-	INFODRV("%s finished", __func__);
 }
 
 static int
 visorvideoclient_probe(struct visor_device *dev)
 {
-	int rc;
 	struct visorvideoclient_devdata *devdata = NULL;
 
-	INFODRV("%s", __func__);
 	devdata = devdata_create(dev);
-	if (devdata == NULL) {
-		rc = -1;
-		goto cleanups;
-	}
+	if (devdata == NULL)
+			return -1;
 	visor_set_drvdata(dev, devdata);
-	rc = 0;
-
-cleanups:
-	INFODRV("%s finished", __func__);
-	if (rc < 0) {
-		if (devdata != NULL)
-			devdata_put(devdata, "existence");
-	}
-	return rc;
+	return 0;
 }
 
 static void
@@ -223,24 +200,18 @@ static void
 visorvideoclient_remove(struct visor_device *dev)
 {
 	struct visorvideoclient_devdata *devdata = visor_get_drvdata(dev);
+	if (devdata == NULL)
+			return;
 
-	INFODRV("%s", __func__);
-	if (devdata == NULL) {
-		ERRDRV("no devdata in %s", __func__);
-		goto cleanups;
-	}
 	visor_set_drvdata(dev, NULL);
 	host_side_disappeared(devdata);
 	devdata_put(devdata, "existence");
-cleanups:
-	INFODRV("%s finished", __func__);
 }
 
 static int
 visorvideoclient_pause(struct visor_device *dev,
 		       VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "paused");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -249,7 +220,6 @@ static int
 visorvideoclient_resume(struct visor_device *dev,
 			VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "resumed");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -267,35 +237,20 @@ visorvideoclient_cleanup_guts(void)
 static int
 visorvideoclient_init(void)
 {
-	int rc;
-
-	INFODRV("driver version %s loaded", VERSION);
-
-	/* show module options */
-	INFODRV("option - debug=%d", visorvideoclient_debug);
-	INFODRV("         debugref=%d", visorvideoclient_debugref);
-
 	spin_lock_init(&devnopool_lock);
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
 	if (dev_no_pool == NULL) {
-		ERRDRV("Unable to create dev_no_pool");
-		rc = -1;
-		goto cleanups;
+		visorvideoclient_cleanup_guts();
+		return -1;
 	}
 	visorbus_register_visor_driver(&visorvideoclient_driver);
-	rc = 0;
-
-cleanups:
-	if (rc < 0)
-		visorvideoclient_cleanup_guts();
-	return rc;
+	return 0;
 }
 
 static void
 visorvideoclient_cleanup(void)
 {
 	visorvideoclient_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 module_param_named(debug, visorvideoclient_debug, int, S_IRUGO);

@@ -266,8 +266,6 @@ devdata_rw_property_store(struct device *ddev,
 	switch (ix) {
 	case proprw_inprogress:
 		if (!get_ulong_from_buf(buf, count, &val))
-			ERRDEV(devdata->name,
-			       "inprogress must be number (hex or dec)");
 		down_write(&devdata->lock_device);
 		if (val == 1) {
 			TRANSITION_STATE(devdata, state_requested,
@@ -278,10 +276,7 @@ devdata_rw_property_store(struct device *ddev,
 			 */
 			if (TRANSITION_STATE
 			    (devdata, state_in_progress, state_failed)) {
-				if (!devdata->complete_func)
-					ERRDEV(devdata->name,
-					       "no complete_func!");
-				else
+				if (devdata->complete_func)
 					devdata->complete_func(devdata->
 							       complete_context,
 							       -1);
@@ -290,10 +285,7 @@ devdata_rw_property_store(struct device *ddev,
 			/* the stop succeeded */
 			if (TRANSITION_STATE
 			    (devdata, state_in_progress, state_complete)) {
-				if (!devdata->complete_func)
-					ERRDEV(devdata->name,
-					       "no complete_func!");
-				else
+				if (devdata->complete_func)
 					devdata->complete_func(devdata->
 							       complete_context,
 							       0);
@@ -318,7 +310,6 @@ register_ro_devdata_attributes(struct device *dev)
 	struct sparstop_devdata *devdata = dev_get_drvdata(dev);
 	struct device_attribute *pattr = devdata->devdata_ro_property;
 
-	INFODRV("%s:Entered pattr=%p", __func__, pattr);
 	pattr[propro_devmajorminor].attr.name = "devmajorminor";
 	pattr[propro_state].attr.name = "state";
 	pattr[propro_stateno].attr.name = "stateno";
@@ -327,11 +318,8 @@ register_ro_devdata_attributes(struct device *dev)
 		pattr[i].show = devdata_ro_property_show;
 		pattr[i].store = NULL;
 		rc = device_create_file(dev, &pattr[i]);
-		if (rc < 0) {
-			ERRDRV("device_create_file(dev, &pattr[i]): error (status=%d)\n",
-			       rc);
-			goto cleanup;
-		}
+		if (rc < 0)
+				goto cleanup;
 	}
 
 	rc = 0;
@@ -346,18 +334,14 @@ register_rw_devdata_attributes(struct device *dev)
 	struct sparstop_devdata *devdata = dev_get_drvdata(dev);
 	struct device_attribute *pattr = devdata->devdata_rw_property;
 
-	INFODRV("%s:Entered pattr=%p", __func__, pattr);
 	pattr[proprw_inprogress].attr.name = "inprogress";
 	for (i = 0; i < proprw_DEVDATAMAX; i++) {
 		pattr[i].attr.mode = S_IRUGO | S_IWUGO;
 		pattr[i].show = devdata_rw_property_show;
 		pattr[i].store = devdata_rw_property_store;
 		rc = device_create_file(dev, &pattr[i]);
-		if (rc < 0) {
-			ERRDRV("device_create_file(dev, &pattr[i]): error (status=%d)\n",
-			       rc);
-			goto cleanup;
-		}
+		if (rc < 0)
+				goto cleanup;
 	}
 
 	rc = 0;
@@ -371,17 +355,13 @@ register_device_attributes(struct device *dev)
 	int rc = 0;
 
 	rc = register_ro_devdata_attributes(dev);
-	if (rc < 0) {
-		ERRDRV("register_ro_devdata_attributes(dev): error (status=%d)\n",
-		       rc);
-		goto cleanup;
-	}
+	if (rc < 0)
+			goto cleanup;
+
 	rc = register_rw_devdata_attributes(dev);
-	if (rc < 0) {
-		ERRDRV("register_rw_devdata_attributes(dev): error (status=%d)\n",
-		       rc);
-		goto cleanup;
-	}
+	if (rc < 0)
+			goto cleanup;
+
 	rc = 0;
 cleanup:
 	return rc;
@@ -394,7 +374,6 @@ unregister_ro_devdata_attributes(struct device *dev)
 	struct sparstop_devdata *devdata;
 	struct device_attribute *pattr;
 
-	INFODRV("%s:Entered ", __func__);
 	devdata = dev_get_drvdata(dev);
 	pattr = devdata->devdata_ro_property;
 	for (i = 0; i < propro_DEVDATAMAX; i++)
@@ -409,7 +388,6 @@ unregister_rw_devdata_attributes(struct device *dev)
 	struct sparstop_devdata *devdata;
 	struct device_attribute *pattr;
 
-	INFODRV("%s:Entered ", __func__);
 	devdata = dev_get_drvdata(dev);
 	pattr = devdata->devdata_rw_property;
 	for (i = 0; i < proprw_DEVDATAMAX; i++)
@@ -422,10 +400,8 @@ unregister_device_attributes(struct device *dev)
 {
 	int rc = 0;
 
-	INFODRV("%s:Entered ", __func__);
 	unregister_ro_devdata_attributes(dev);
 	unregister_rw_devdata_attributes(dev);
-	INFODRV("%s:Leaving ", __func__);
 	return rc;
 }
 
@@ -437,7 +413,6 @@ devdata_create(struct device *dev)
 
 	devdata = kmalloc(sizeof(*devdata), GFP_KERNEL|__GFP_NORETRY);
 	if (devdata == NULL) {
-		ERRDRV("allocation of sparstop_devdata failed: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
@@ -446,7 +421,6 @@ devdata_create(struct device *dev)
 	cdev_init(&devdata->cdev_stop, NULL);
 	if (kstrtoint(dev_name(dev) + strlen(SPARSTOP_DEVICEPREFIX), 10,
 		      &devdata->devno) != 0) {
-		ERRDRV("failed to get devno: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
@@ -457,7 +431,6 @@ devdata_create(struct device *dev)
 	devdata->cdev_stop.owner = THIS_MODULE;
 	if (cdev_add(&devdata->cdev_stop,
 		     MKDEV(MAJOR(major_dev), devdata->devno), 1) < 0) {
-		ERRDRV("failed to create char device: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
@@ -488,7 +461,6 @@ devdata_release(struct kref *mykref)
 	struct sparstop_devdata *devdata = container_of(mykref,
 							struct sparstop_devdata,
 							kref);
-	INFODEV(devdata->name, "devdata deallocated (no more refs)");
 	spin_lock(&lock_all_devices);
 	list_del(&devdata->list_all);
 	spin_unlock(&lock_all_devices);
@@ -499,7 +471,6 @@ devdata_release(struct kref *mykref)
 static void
 devdata_put(struct sparstop_devdata *devdata)
 {
-	INFODRV("%s:Entered ", __func__);
 	kref_put(&devdata->kref, devdata_release);
 }
 
@@ -514,14 +485,11 @@ remove_stop_device(struct device *dev)
 {
 	struct sparstop_devdata *devdata = dev_get_drvdata(dev);
 
-	INFODRV("%s:Entered ", __func__);
-	if (devdata == NULL) {
-		HUHDRV("no devdata in %s", __func__);
-		goto cleanup;
-	}
+	if (devdata == NULL)
+			return;
+
 	unregister_device_attributes(dev);
 	devdata_put(devdata);	/* 1 less reference to devdata */
-	INFODRV("%s:About to do dev_set_drvdata", __func__);
 	dev_set_drvdata(dev, NULL);
 
 	/* Note that it is still possible to have files open to this device
@@ -532,18 +500,11 @@ remove_stop_device(struct device *dev)
 	 */
 	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
 	devdata->dev = NULL;
-	INFODRV("%s:About to do devdata_put ", __func__);
 	devdata_put(devdata);
 	/* Undo kref_init(&devdata->kref) from devdata_create(): */
-	INFODRV("%s:About to do put_device ", __func__);
 	put_device(dev);	/* from add_stop_device */
 	/* Undo device_initialize + device_add() from add_stop_device(): */
-	INFODRV("%s:About to do device_unregister ", __func__);
 	device_unregister(dev);	/* Here is where KOBJ_REMOVE hotplug happens */
-	INFODRV("%s:Done ", __func__);
-
-cleanup:
-	INFODRV("%s finished", __func__);
 }
 
 static void
@@ -552,13 +513,10 @@ stop_device_release(struct device *dev)
 	ulong ul;
 
 	if (dev == NULL)
-		return;
-	INFODEV(dev_name(dev),
-		"kernelmode stop device deallocated (no more refs)");
-	if (kstrtoul(dev_name(dev) + strlen(SPARSTOP_DEVICEPREFIX), 10, &ul)) {
-		ERRDEV(dev_name(dev), "invalid device name-not freeing");
-		return;
-	}
+			return;
+	if (kstrtoul(dev_name(dev) + strlen(SPARSTOP_DEVICEPREFIX), 10, &ul))
+			return;
+
 	spin_lock(&devnopool_lock);
 	clear_bit(ul, devnopool);
 	spin_unlock(&devnopool_lock);
@@ -582,14 +540,12 @@ add_stop_device(void)
 	if (devno == MAXDEVICES)
 		devno = -1;
 	if (devno < 0) {
-		ERRDRV("attempt to create more than MAXDEVICES devices??: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
 
 	dev = kmalloc(sizeof(*dev), GFP_KERNEL|__GFP_NORETRY);
 	if (dev == NULL) {
-		ERRDRV("failed to allocate device: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
@@ -607,7 +563,6 @@ add_stop_device(void)
 	dev_set_name(dev, "%s%d", SPARSTOP_DEVICEPREFIX, devno);
 	devdata = devdata_create(dev);
 	if (devdata == NULL) {
-		ERRDRV("failed to allocate devdata for device: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
@@ -621,19 +576,16 @@ add_stop_device(void)
 
 	/* This is where the KOBJ_ADD hotplug event happens */
 	if (device_add(dev) < 0) {
-		ERRDRV("device_add failed: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
 	/* note: device_register is simply device_initialize + device_add */
 
 	if (register_device_attributes(dev) < 0) {
-		ERRDRV("register_device_attributes failed: (status=0)\n");
 		rc = NULL;
 		goto cleanup;
 	}
 	registered = TRUE;
-	INFODEV(dev_name(dev), "kernelmode stop device 0x%p created", dev);
 	rc = dev;
 cleanup:
 	if (rc == NULL) {
@@ -679,18 +631,8 @@ transition_state_guts(struct sparstop_devdata *devdata,
 		      enum sparstop_state new_state,
 		      char *filename, int lineno)
 {
-	if (devdata->state != old_state) {
-		ERRDEV(devdata->name,
-		       "Can't do state transition %s(%d)-->%s(%d) @%s:%d (old state=%s(%d) invalid)",
-			state_str(old_state), old_state, state_str(new_state),
-			new_state, filename, lineno, state_str(devdata->state),
-			devdata->state);
-		return FALSE;
-	}
-	INFODEV(devdata->name, "state transition %s(%d)-->%s(%d) @%s:%d",
-		state_str(old_state), old_state,
-		state_str(new_state), new_state, filename, lineno);
-	devdata->state = new_state;
+	if (devdata->state != old_state)
+			return FALSE;
 	return TRUE;
 }
 
@@ -699,28 +641,18 @@ sparstop_init(void)
 {
 	int rc = -1;
 
-	INFODRV("driver version %s loaded", VERSION);
-	/* uintpool_test(); */
-	INFODRV("Options:");
-	INFODRV("         major=%d", sparstop_major);
-
 	major_dev = MKDEV(sparstop_major, 0);
 	spin_lock_init(&devnopool_lock);
 	devnopool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (devnopool == NULL) {
-		ERRDRV("Unable to create devnopool");
-		goto cleanup;
-	}
-	if (alloc_chrdev_region(&major_dev, 0, MAXDEVICES, MYDRVNAME) < 0) {
-		ERRDRV("Unable to register char device %s", MYDRVNAME);
-		goto cleanup;
-	}
+	if (devnopool == NULL)
+			goto cleanup;
+
+	if (alloc_chrdev_region(&major_dev, 0, MAXDEVICES, MYDRVNAME) < 0)
+			goto cleanup;
+
 	rc = bus_register(&simplebus_type);
-	if (rc < 0) {
-		ERRDRV("allocation of sparstop_devdata failed: (status=%d)\n",
-		       rc);
-		goto cleanup;
-	}
+	if (rc < 0)
+			goto cleanup;
 	rc = 0;
 cleanup:
 	if (rc < 0)
@@ -732,7 +664,6 @@ static void
 sparstop_cleanup(void)
 {
 	sparstop_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 int
@@ -742,16 +673,13 @@ sp_stop(void *context, SPARSTOP_COMPLETE_FUNC complete_func)
 	int rc = -1;
 
 	if (standalone_device != NULL) {
-		ERRDRV("%s standalone_device already active, removing it",
-		       __func__);
 		remove_stop_device(standalone_device);
 		standalone_device = NULL;
 	}
 	standalone_device = add_stop_device();
-	if (standalone_device == NULL) {
-		ERRDRV("%s failed to create sparstop device", __func__);
+	if (standalone_device == NULL)
 		goto cleanup;
-	}
+
 	devdata = dev_get_drvdata(standalone_device);
 	devdata->complete_func = complete_func;
 	devdata->complete_context = context;

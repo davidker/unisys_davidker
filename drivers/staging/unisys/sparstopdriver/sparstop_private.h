@@ -18,7 +18,6 @@
 #ifndef __SPARSTOP_PRIVATE_H__
 #define __SPARSTOP_PRIVATE_H__
 
-#include "uniklog.h"
 #include "timskmod.h"
 #include "version.h"
 #include <linux/ctype.h>

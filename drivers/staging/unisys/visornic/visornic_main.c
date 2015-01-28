@@ -21,7 +21,6 @@
  * state to go RUNNING.
  */
 
-#include "uniklog.h"
 #include "diagnostics/appos_subsystems.h"
 #include "timskmod.h"
 #include "globals.h"
@@ -134,7 +133,6 @@ static struct visornic_devdata *devdata_create(struct visor_device *dev)
 	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
 	if (!devdata) {
-		ERRDRV("allocation of visornic_devdata failed\n");
 		return NULL;
 	}
 	memset(devdata, '\0', sizeof(struct visornic_devdata));
@@ -145,7 +143,6 @@ static struct visornic_devdata *devdata_create(struct visor_device *dev)
 	if (devno == MAXDEVICES)
 		devno = -1;
 	if (devno < 0) {
-		ERRDRV("unknown device\n");
 		kfree(devdata);
 		return NULL;
 	}
@@ -165,7 +162,6 @@ static void devdata_release(struct kref *mykref)
 	struct visornic_devdata *devdata =
 		container_of(mykref, struct visornic_devdata, kref);
 
-	INFODRV("%s", __func__);
 	spin_lock(&dev_no_pool_lock);
 	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&dev_no_pool_lock);
@@ -173,19 +169,16 @@ static void devdata_release(struct kref *mykref)
 	list_del(&devdata->list_all);
 	spin_unlock(&lock_all_devices);
 	kfree(devdata);
-	INFODRV("%s finished", __func__);
 }
 
 static int visornic_probe(struct visor_device *dev)
 {
 	struct visornic_devdata *devdata = NULL;
 
-	INFODRV("%s", __func__);
 	devdata = devdata_create(dev);
 	if (!devdata)
 		return -1;
 	visor_set_drvdata(dev, devdata);
-	INFODRV("%s finished", __func__);
 	return 0;
 }
 
@@ -201,22 +194,18 @@ static void visornic_remove(struct visor_device *dev)
 {
 	struct visornic_devdata *devdata = visor_get_drvdata(dev);
 
-	INFODRV("%s", __func__);
 	if (!devdata) {
-		ERRDRV("no devdata in %s", __func__);
 		return;
 	}
 	visor_set_drvdata(dev, NULL);
 	host_side_disappeared(devdata);
 	kref_put(&devdata->kref, devdata_release);
 
-	INFODRV("%s finished", __func__);
 }
 
 static int visornic_pause(struct visor_device *dev,
 			  VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "paused");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -224,7 +213,6 @@ static int visornic_pause(struct visor_device *dev,
 static int visornic_resume(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "resumed");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -238,8 +226,6 @@ static void visornic_cleanup_guts(void)
 
 static int visornic_init(void)
 {
-	INFODRV("driver version %s loaded", VERSION);
-
 	/* DAK -- ASSERTS were here, RCVPOST_BUF_SIZE < 4K &
 	   RCVPOST_BUF_SIZE < ETH_HEADER_SIZE.  We own these, why do we
 	   need to assert?  No one is going to change the headers and if
@@ -266,7 +252,6 @@ static int visornic_init(void)
 	spin_lock_init(&dev_no_pool_lock);
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
 	if (!dev_no_pool) {
-		ERRDRV("Unable to create dev_no_pool");
 		visornic_cleanup_guts();
 		return -1;
 	}
@@ -277,7 +262,6 @@ static int visornic_init(void)
 static void visornic_cleanup(void)
 {
 	visornic_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 module_init(visornic_init);

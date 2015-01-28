@@ -18,7 +18,6 @@
 #ifndef __VISORBUS_PRIVATE_H__
 #define __VISORBUS_PRIVATE_H__
 
-#include "uniklog.h"
 #include "timskmod.h"
 #include "visorbus.h"
 #include "visorchipset.h"
