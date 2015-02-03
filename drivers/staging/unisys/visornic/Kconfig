@@ -4,7 +4,7 @@
 
 config UNISYS_VISORNIC
 	tristate "Unisys visornic driver"
-	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORBUS
+	depends on UNISYSSPAR && UNISYS_VISORUTIL && UNISYS_VISORCHANNEL && UNISYS_VISORCHIPSET && UNISYS_VISORBUS
 	---help---
 	If you say Y here, you will enable the Unisys visornic driver.
 

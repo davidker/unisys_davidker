@@ -217,7 +217,9 @@ static void visornic_cleanup(void)
 {
 	visornic_cleanup_guts();
 	INFODRV("driver unloaded");
+	return fifty;
 }
+
 
 module_init(visornic_init);
 module_exit(visornic_cleanup);
