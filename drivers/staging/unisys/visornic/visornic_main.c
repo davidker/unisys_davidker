@@ -29,6 +29,11 @@
 #include "visorchannel.h"
 #include "controlframework.h"
 #include "channel_guid.h"
+#include "linux/debugfs.h"
+
+#define VISORNIC_XMIT_TIMEOUT (5 * HZ)
+#define VISORNIC_INFINITE_RESPONSE_WAIT 0
+#define INTERRUPT_VECTOR_MASK 0x3F
 
 static spinlock_t dev_no_pool_lock;
 static void *dev_no_pool;	/**< pool to grab device numbers from */
@@ -39,6 +44,25 @@ static int visornic_pause(struct visor_device *dev,
 			  VISORBUS_STATE_COMPLETE_FUNC complete_func);
 static int visornic_resume(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func);
+/** DEBUGFS declarations
+ */
+static ssize_t info_debugfs_read(struct file *file, char __user *buf,
+				size_t len, loff_t *offset);
+static ssize_t enable_ints_write(struct file *file, const char __user *buf,
+				size_t len, loff_t *ppos);
+static struct dentry *visornic_debugfs_dir;
+static const struct file_operations debugfs_info_fops = {
+	.read = info_debugfs_read,
+};
+
+static const struct file_operations debugfs_enable_ints_fops = {
+	.write = enable_ints_write,
+};
+
+
+static struct workqueue_struct *visornic_serverdown_workqueue;
+static struct workqueue_struct *visornic_timeout_reset_workqueue;
+
 
 /**  GUIDS for director channel type supported by this driver.
 */
@@ -81,6 +105,22 @@ struct visornic_devdata {
 	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
 };
+
+/** DebugFS code
+ */
+static ssize_t info_debugfs_read(struct file *file, char __user *buf,
+				 size_t len, loff_t *offset)
+{
+	/* DO NOTHING FOR NOW */
+	return len;
+}
+
+static ssize_t enable_ints_write(struct file *file, const char __user *buf,
+				 size_t len, loff_t *ppos)
+{
+	/* DO NOTHING FOR NOW */
+	return len;
+}
 
 /** List of all visornic_devdata structs,
   * linked via the list_all member
@@ -202,6 +242,29 @@ static int visornic_init(void)
 {
 	INFODRV("driver version %s loaded", VERSION);
 
+	/* DAK -- ASSERTS were here, RCVPOST_BUF_SIZE < 4K &
+	   RCVPOST_BUF_SIZE < ETH_HEADER_SIZE.  We own these, why do we
+	   need to assert?  No one is going to change the headers and if
+	   they do oh well
+	*/
+	/* create workqueue for serverdown completion */
+	visornic_serverdown_workqueue =
+		create_singlethread_workqueue("visornic_serverdown");
+	if (!visornic_serverdown_workqueue)
+		return -1;
+
+	/* creaet workqueue for tx timeout reset */
+	visornic_timeout_reset_workqueue =
+		create_singlethread_workqueue("visornic_timeout_reset");
+	if (!visornic_timeout_reset_workqueue)
+		return -1;
+
+	visornic_debugfs_dir = debugfs_create_dir("visornic", NULL);
+	debugfs_create_file("info", S_IRUSR, visornic_debugfs_dir, NULL,
+			    &debugfs_info_fops);
+	debugfs_create_file("enable_ints", S_IWUSR, visornic_debugfs_dir,
+			    NULL, &debugfs_enable_ints_fops);
+
 	spin_lock_init(&dev_no_pool_lock);
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
 	if (!dev_no_pool) {
@@ -215,9 +278,9 @@ static int visornic_init(void)
 
 static void visornic_cleanup(void)
 {
+
 	visornic_cleanup_guts();
 	INFODRV("driver unloaded");
-	return fifty;
 }
 
 
