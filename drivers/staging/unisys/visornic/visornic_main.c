@@ -47,9 +47,9 @@ static int visornic_resume(struct visor_device *dev,
 /** DEBUGFS declarations
  */
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
-				size_t len, loff_t *offset);
+				 size_t len, loff_t *offset);
 static ssize_t enable_ints_write(struct file *file, const char __user *buf,
-				size_t len, loff_t *ppos);
+				 size_t len, loff_t *ppos);
 static struct dentry *visornic_debugfs_dir;
 static const struct file_operations debugfs_info_fops = {
 	.read = info_debugfs_read,
@@ -59,10 +59,8 @@ static const struct file_operations debugfs_enable_ints_fops = {
 	.write = enable_ints_write,
 };
 
-
 static struct workqueue_struct *visornic_serverdown_workqueue;
 static struct workqueue_struct *visornic_timeout_reset_workqueue;
-
 
 /**  GUIDS for director channel type supported by this driver.
 */
@@ -278,11 +276,9 @@ static int visornic_init(void)
 
 static void visornic_cleanup(void)
 {
-
 	visornic_cleanup_guts();
 	INFODRV("driver unloaded");
 }
-
 
 module_init(visornic_init);
 module_exit(visornic_cleanup);
