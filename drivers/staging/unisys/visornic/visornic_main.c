@@ -27,10 +27,15 @@
 #include "globals.h"
 #include "visorbus.h"
 #include "visorchannel.h"
+#include "visorchipset.h"
 #include "controlframework.h"
-#include "channel_guid.h"
-#include "linux/debugfs.h"
+#include "iochannel.h"
 
+#include <linux/debugfs.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+
+#define VISORNIC_STATS 0
 #define VISORNIC_XMIT_TIMEOUT (5 * HZ)
 #define VISORNIC_INFINITE_RESPONSE_WAIT 0
 #define INTERRUPT_VECTOR_MASK 0x3F
@@ -94,16 +99,108 @@ static struct visor_driver visornic_driver = {
  *  A pointer to this struct is kept in each "struct device", and can be
  *  obtained using visor_get_drvdata(dev).
  */
+struct uisqueue_info { 
+	struct channel_header __iomem *chan;
+	/* channel containing queues in which commands & rsps are queued */
+	u64 packets_sent;
+	u64 packets_received;
+	u64 interrupts_sent;
+	u64 interrupts_received; 
+	u64 max_not_empty_cnt;
+	u64 total_wakeup_cnt;
+	u64 non_empty_wakeup_cnt;
+	struct {
+		struct signal_queue_header reserved1;
+		struct signal_queue_header reserved2;
+	} safe_uis_queue;
+};
+
+struct uisthread_info {
+	struct task_struct *task;
+	int id;
+};
+
+struct chaninfo {
+	struct uisqueue_info *queueinfo;
+	/* this specifies the queue structures for a channel */
+	/* ALLOCATED BY THE OTHER END - WE JUST GET A POINTER TO THE MEMORY */
+	spinlock_t insertlock;
+	/* currently used only in visornic when sending data to uisnic */
+	/* to synchronize the inserts into the signal queue */
+	struct uisthread_info threadinfo;
+	/* this specifies the thread structures used by the thread that */
+	/* handels this channel */
+};
+
+struct chanstat { 
+	unsigned long got_rcv;
+	unsigned long got_enbdisack;
+	unsigned long got_xmit_done;
+	unsigned long xmit_fail;
+	unsigned long sent_enbdis;
+	unsigned long sent_promisc;
+	unsigned long sent_post;
+	unsigned long sent_xmit;
+	unsigned long reject_count;
+	unsigned long extra_rcvbufs_sent;
+#if VISORNIC_STATS
+	unsigned long reject_jiffies_start; /* jiffie count at start of
+					       NET_XMIT rejects */
+#endif
+};
+
+struct datachan { 
+	struct chaninfo chinfo;
+	struct chanstat chstat;
+};
+
 struct visornic_devdata {
 	int devno;
+	int interrupt_vector;
+	int thread_wait_ms;
+	unsigned short enabled;		/* 0 disabled 1 enabled to receive */
+	unsigned short enab_dis_acked;	/* NET_RCV_ENABLE/DISABLE acked by
+					   IOPART */
 	struct visor_device *dev;
+	struct visorchipset_device_info *dev_chipset; /* IRQ Information */
 	/** lock for dev */
 	struct rw_semaphore lock_visor_dev;
 	char name[99];
 	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
+	struct net_device *netdev;
+	wait_queue_head_t rsp_queue;
+	struct sk_buff **rcvbuf;
+	int num_rcv_bufs;		 /* indicates how many rcv buffers
+					    the vnic will post */
+	int max_outstanding_net_xmits;   /* absolute max number of outstanding
+					    xmits - should never hit this */
+	int upper_threshold_net_xmits;   /* high water mark for calling
+					    netif_stop_queue() */
+	int lower_threshold_net_xmits;	 /* high water mark for calling
+					    netif_wake_queue() */
+	struct sk_buff_head xmitbufhead; /* xmitbufhead is the head of the
+					    xmit buffer list that have been
+					    sent to the IOPART end */
+	struct work_struct serverdown_completion;
+	struct work_struct timeout_reset;
+	struct uiscmdrsp *cmdrsp_rcv;	 /* cmdrsp_rcv is used for
+					    posting/unposting rcv buffers */
+	bool server_down;		 /* IOPART is down */
+	bool server_change_state;	 /* Processing SERVER_CHANGESTATE msg */
+	struct dentry *eth_debugfs_dir;
+	struct uisthread_info threadinfo;
 };
 
+int uisthread_start(struct uisthread_info *thrinfo, 
+		    int (*threadfn)(void *), 
+		    void *thrcontext, char *name) 
+{
+
+}
+void uisthread_stop(struct uisthread_info *thrinfo) 
+{
+}
 /** DebugFS code
  */
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
@@ -120,19 +217,29 @@ static ssize_t enable_ints_write(struct file *file, const char __user *buf,
 	return len;
 }
 
+static void
+visornic_timeout_reset(struct work_struct *work)
+{
+	/* DO NOTHING FOR NOW */
+}
+
+static void
+visornic_serverdown_complete(struct work_struct *work)
+{
+	/* DO NOTHING FOR NOW */
+}
+
 /** List of all visornic_devdata structs,
   * linked via the list_all member
   */
 static LIST_HEAD(list_all_devices);
 static DEFINE_SPINLOCK(lock_all_devices);
 
-static struct visornic_devdata *devdata_create(struct visor_device *dev)
+static struct visornic_devdata *
+devdata_initialize(struct visornic_devdata *devdata, struct visor_device *dev)
 {
-	struct visornic_devdata *devdata = NULL;
 	int devno = -1;
 
-	devdata = kmalloc(sizeof(*devdata),
-			  GFP_KERNEL|__GFP_NORETRY);
 	if (!devdata) {
 		ERRDRV("allocation of visornic_devdata failed\n");
 		return NULL;
@@ -176,15 +283,129 @@ static void devdata_release(struct kref *mykref)
 	INFODRV("%s finished", __func__);
 }
 
+static irqreturn_t
+visornic_ISR(int irq, void *dev_id)
+{
+	return IRQ_HANDLED;
+}
+
+static const struct net_device_ops visornic_dev_ops = {
+	/* .ndo_open = visornic_open,
+	.ndo_close = visornic_close,
+	.ndo_start_xmit = visornic_xmit,
+	.ndo_get_stats = visornic_get_stats,
+	.ndo_do_ioctl = visornic_ioctl,
+	.ndo_change_mtu = visornic_change_mtu,
+	.ndo_tx_timeout = visornic_xmit_timeout,
+	.ndo_set_rx_mode = visornic_set_multi, */
+};
+
 static int visornic_probe(struct visor_device *dev)
 {
 	struct visornic_devdata *devdata = NULL;
+	struct net_device *netdev = NULL;
+	int err;
+	int rsp;
+	int channel_offset = 0;
+	irq_handler_t handler = visornic_ISR;
+	struct channel_header __iomem *p_channel_header;
+	struct signal_queue_header __iomem *pqhdr;
+	u64 mask;
+	u64 features;
 
 	INFODRV("%s", __func__);
-	devdata = devdata_create(dev);
+	netdev = alloc_etherdev(sizeof(struct visornic_devdata));
+	if (!netdev) {
+		LOGERR("***** FAILED to alloc etherdev\n");
+		return -ENOMEM;
+	}
+	netdev->netdev_ops = &visornic_dev_ops;
+	netdev->watchdog_timeo = VISORNIC_XMIT_TIMEOUT;
+
+	/* Get MAC adddress from channel and read it into the device. */
+	channel_offset = offsetof(struct spar_io_channel_protocol,
+				  vnic.macaddr);
+	visorbus_read_channel(dev, channel_offset, &netdev->dev_addr,
+			      MAX_MACADDR_LEN);
+	netdev->addr_len = MAX_MACADDR_LEN;
+	netdev->dev.parent = &dev->device;
+
+	devdata = devdata_initialize(netdev_priv(netdev), dev);
 	if (!devdata)
-		return -1;
-	visor_set_drvdata(dev, devdata);
+		return -ENOMEM;
+
+	devdata->interrupt_vector = -1;
+	devdata->netdev = netdev;
+	init_waitqueue_head(&devdata->rsp_queue);
+	devdata->enabled = 0; /* not yet */
+	
+	visorchipset_get_device_info(dev->chipset_bus_no, 
+				     dev->chipset_dev_no, 
+				     devdata->dev_chipset);
+
+	/* Setup rcv bufs */
+	channel_offset = offsetof(struct spar_io_channel_protocol,
+				  vnic.num_rcv_bufs);
+	visorbus_read_channel(dev, channel_offset, &devdata->num_rcv_bufs, 4);
+	devdata->rcvbuf = kmalloc(sizeof(struct sk_buff *) *
+				  devdata->num_rcv_bufs, GFP_ATOMIC);
+	if (!devdata->rcvbuf) {
+		free_netdev(netdev);
+		return -ENOMEM;
+	}
+	/* set the net_xmit outstanding threshold */
+	/* always leave two slots open but you should have 3 at a minimum */
+	devdata->max_outstanding_net_xmits =
+		max(3, ((devdata->num_rcv_bufs / 3) - 2));
+	devdata->upper_threshold_net_xmits =
+		max(2, devdata->max_outstanding_net_xmits - 1);
+	devdata->lower_threshold_net_xmits =
+		max(1, devdata->max_outstanding_net_xmits / 2);
+
+	skb_queue_head_init(&devdata->xmitbufhead);
+
+	/* create a cmdrsp we can use to post and unpost rcv buffers */
+	devdata->cmdrsp_rcv = kmalloc(SIZEOF_CMDRSP, GFP_ATOMIC);
+	if (!devdata->cmdrsp_rcv) {
+		kfree(devdata->rcvbuf);
+		free_netdev(netdev);
+		return -ENOMEM;
+	}
+	INIT_WORK(&devdata->serverdown_completion,
+		  visornic_serverdown_complete);
+	INIT_WORK(&devdata->timeout_reset, visornic_timeout_reset);
+	devdata->server_down = false;
+	devdata->server_change_state = false;
+
+	/*set the default mtu */
+	channel_offset = offsetof(struct spar_io_channel_protocol,
+				  vnic.mtu);
+	visorbus_read_channel(dev, channel_offset, &netdev->mtu, 4);
+
+	/* TODO: Setup Interrupt information */
+
+	/* Let's start our threads to get responses */
+	channel_offset = offsetof(struct spar_io_channel_protocol,
+				  channel_header.features);
+	visorbus_read_channel(dev, channel_offset, &features, 8);
+	features |= ULTRA_IO_CHANNEL_IS_POLLING;
+	visorbus_write_channel(dev, channel_offset, &features, 8);
+	
+	/* TODO: Get queue features flag and save it off */
+	devdata->thread_wait_ms = 2;
+	/* TODO: Start threads for process_incoming */
+
+	/* create debgug/sysfs directories */ 
+	devdata->eth_debugfs_dir = debugfs_create_dir(netdev->name, 
+						      visornic_debugfs_dir);
+	if (!devdata->eth_debugfs_dir) { 
+		uisthread_stop(&devdata->threadinfo);
+		kfree(devdata->cmdrsp_rcv);
+		kfree(devdata->rcvbuf);
+		free_netdev(netdev);
+		return -ENOMEM;
+	}
+
 	INFODRV("%s finished", __func__);
 	return 0;
 }
