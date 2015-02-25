@@ -20,6 +20,7 @@
 #include "linuxserial.h"
 #include "linuxconsole.h"
 #include "uisutils.h"
+#include <linux/kfifo.h>
 
 static dev_t majordevserial = -1;
 				/**< indicates major num for serial devices */
@@ -161,7 +162,7 @@ struct visorserial_filedata_serial {
 	struct list_head list_all;
 	/** tasks queued here are waiting for read data */
 	wait_queue_head_t waiting_readers;
-	struct charqueue *data_from_host;
+	struct kfifo *data_from_host;
 	unsigned char buf[NFILEWRITEBYTESTOBUFFER];
 };
 
@@ -640,7 +641,7 @@ serial_create_file(struct visorserial_devdata *devdata)
 	devdata_get(devdata, "create_file");
 	filedata->data_from_host = NULL;
 	init_waitqueue_head(&filedata->waiting_readers);
-	filedata->data_from_host = visor_charqueue_create(NHOSTBYTESTOBUFFER);
+	kfifo_alloc(filedata->data_from_host, NHOSTBYTESTOBUFFER, GFP_KERNEL);
 	if (filedata->data_from_host == NULL) {
 		rc = NULL;
 		goto cleanups;
@@ -660,7 +661,7 @@ static void
 serial_destroy_file(struct visorserial_filedata_serial *filedata)
 {
 	if (filedata->data_from_host != NULL) {
-		visor_charqueue_destroy(filedata->data_from_host);
+		kfifo_free(filedata->data_from_host);
 		filedata->data_from_host = NULL;
 	}
 	devdata_put(filedata->devdata, "create_file");
@@ -670,7 +671,7 @@ serial_destroy_file(struct visorserial_filedata_serial *filedata)
 static void
 serial_new_host_char(struct visorserial_filedata_serial *filedata, u8 c)
 {
-	visor_charqueue_enqueue(filedata->data_from_host, c);
+	kfifo_in(filedata->data_from_host, filedata->buf, c);
 	wake_up(&filedata->waiting_readers);
 }
 
@@ -742,7 +743,7 @@ host_side_disappeared(struct visorserial_devdata *devdata)
 static BOOL
 serial_ready_to_read(struct visorserial_filedata_serial *filedata)
 {
-	if (!visor_charqueue_is_empty(filedata->data_from_host))
+	if (!kfifo_is_empty(filedata->data_from_host))
 		return TRUE;
 	if (filedata->devdata->dev == NULL)	/* channel disappeared */
 		return TRUE;
@@ -888,8 +889,8 @@ visorserial_serial_read(struct file *file, char __user *buf,
 				return -EINTR;
 		if (devdata->dev == NULL)
 				return 0;
-		readchars = visor_charqueue_dequeue_n(filedata->data_from_host,
-						      filedata->buf, mycount);
+		readchars = kfifo_out(filedata->data_from_host,
+				      filedata->buf, mycount);
 	}
 	if (copy_to_user(buf, filedata->buf, readchars))
 			return -EFAULT;
