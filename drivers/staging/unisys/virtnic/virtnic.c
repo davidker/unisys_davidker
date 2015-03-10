@@ -909,6 +909,8 @@ drain_queue(struct datachan *dc, struct uiscmdrsp *cmdrsp,
 
 	/* drain queue */
 	while (1) {
+		if (kthread_should_stop())
+			break;
 		spin_lock_irqsave(&dc->chinfo.insertlock, flags);
 		if (!spar_channel_client_acquire_os(dc->chinfo.queueinfo->chan,
 						    "vnic")) {
@@ -1006,9 +1008,6 @@ drain_queue(struct datachan *dc, struct uiscmdrsp *cmdrsp,
 			break;
 		}
 		/* cmdrsp is now available for reuse  */
-
-		if (dc->chinfo.threadinfo.should_stop)
-			break;
 	}
 }
 
@@ -1040,6 +1039,8 @@ process_incoming_rsps(void *v)
 	       IOCHAN_FROM_IOPART;
 	mask = ULTRA_CHANNEL_ENABLE_INTS;
 	while (1) {
+		if (kthread_should_stop())
+			break;
 		wait_event_interruptible_timeout(
 			vnicinfo->rsp_queue, (atomic_read
 					      (&vnicinfo->interrupt_rcvd) == 1),
@@ -1054,8 +1055,6 @@ process_incoming_rsps(void *v)
 		drain_queue(dc, cmdrsp, vnicinfo);
 		rc1 = uisqueue_interlocked_or((uint64_t __iomem *)
 					     vnicinfo->flags_addr, mask);
-		if (dc->chinfo.threadinfo.should_stop)
-			break;
 	}
 
 	kfree(cmdrsp);
