@@ -29,6 +29,7 @@
 #define BOOL int
 #endif
 
+
 /* Note that for visorchannel_create() and visorchannel_create_overlapped(),
  * <channel_bytes> and <guid> arguments may be 0 if we are a channel CLIENT.
  * In this case, the values can simply be read from the channel header.

@@ -30,6 +30,7 @@
 #include "visorchipset.h"
 #include "controlframework.h"
 #include "iochannel.h"
+#include "uisutils.h"
 
 #include <linux/debugfs.h>
 #include <linux/netdevice.h>
@@ -99,9 +100,9 @@ static struct visor_driver visornic_driver = {
  *  A pointer to this struct is kept in each "struct device", and can be
  *  obtained using visor_get_drvdata(dev).
  */
+/* 
 struct uisqueue_info { 
 	struct channel_header __iomem *chan;
-	/* channel containing queues in which commands & rsps are queued */
 	u64 packets_sent;
 	u64 packets_received;
 	u64 interrupts_sent;
@@ -114,23 +115,22 @@ struct uisqueue_info {
 		struct signal_queue_header reserved2;
 	} safe_uis_queue;
 };
+*/
 
-struct uisthread_info {
+struct visor_thread_info {
 	struct task_struct *task;
+	struct completion has_stopped;  // REMOVE
+	int should_stop; // REMOVE
 	int id;
 };
 
+/*
 struct chaninfo {
 	struct uisqueue_info *queueinfo;
-	/* this specifies the queue structures for a channel */
-	/* ALLOCATED BY THE OTHER END - WE JUST GET A POINTER TO THE MEMORY */
 	spinlock_t insertlock;
-	/* currently used only in visornic when sending data to uisnic */
-	/* to synchronize the inserts into the signal queue */
-	struct uisthread_info threadinfo;
-	/* this specifies the thread structures used by the thread that */
-	/* handels this channel */
+	struct visor_thread_info threadinfo;
 };
+*/
 
 struct chanstat { 
 	unsigned long got_rcv;
@@ -143,10 +143,6 @@ struct chanstat {
 	unsigned long sent_xmit;
 	unsigned long reject_count;
 	unsigned long extra_rcvbufs_sent;
-#if VISORNIC_STATS
-	unsigned long reject_jiffies_start; /* jiffie count at start of
-					       NET_XMIT rejects */
-#endif
 };
 
 struct datachan { 
@@ -169,10 +165,17 @@ struct visornic_devdata {
 	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
 	struct net_device *netdev;
+	atomic_t interrupt_rcvd;
 	wait_queue_head_t rsp_queue;
 	struct sk_buff **rcvbuf;
+	unsigned long long uniquenum;
+
 	int num_rcv_bufs;		 /* indicates how many rcv buffers
 					    the vnic will post */
+	int num_rcv_bufs_could_not_alloc;
+	atomic_t num_rcv_bufs_in_iovm;
+	unsigned long alloc_failed_in_if_needed_cnt;
+	unsigned long alloc_failed_in_repost_return_cnt;
 	int max_outstanding_net_xmits;   /* absolute max number of outstanding
 					    xmits - should never hit this */
 	int upper_threshold_net_xmits;   /* high water mark for calling
@@ -189,16 +192,22 @@ struct visornic_devdata {
 	bool server_down;		 /* IOPART is down */
 	bool server_change_state;	 /* Processing SERVER_CHANGESTATE msg */
 	struct dentry *eth_debugfs_dir;
-	struct uisthread_info threadinfo;
+	struct visor_thread_info threadinfo;
+	unsigned long long interrupts_rcvd;
+	unsigned long long interrupts_notme; 
+	unsigned long long interrupts_disabled;
+	unsigned long long busy_cnt;
+	spinlock_t insertlock;
+	spinlock_t priv_lock;
 };
 
-int uisthread_start(struct uisthread_info *thrinfo, 
+int visor_thread_start(struct visor_thread_info *thrinfo, 
 		    int (*threadfn)(void *), 
 		    void *thrcontext, char *name) 
 {
-
+	return 0;
 }
-void uisthread_stop(struct uisthread_info *thrinfo) 
+void visor_thread_stop(struct visor_thread_info *thrinfo) 
 {
 }
 /** DebugFS code
@@ -300,6 +309,272 @@ static const struct net_device_ops visornic_dev_ops = {
 	.ndo_set_rx_mode = visornic_set_multi, */
 };
 
+static struct sk_buff *
+alloc_rcv_buf(struct net_device *netdev)
+{
+	struct sk_buff *skb;
+/*
+ * NOTE: the first fragment in each rcv buffer is pointed to by rcvskb->data.
+ * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
+ * is large enough to hold 1514.
+ */
+        DBGINF("netdev->name <<%s>>:  allocating skb len:%d\n", netdev->name,
+               RCVPOST_BUF_SIZE);
+        skb = alloc_skb(RCVPOST_BUF_SIZE, GFP_ATOMIC | __GFP_NOWARN);
+        if (!skb) {
+                LOGVER("**** alloc_skb failed\n");
+                return NULL;
+        }
+        skb->dev = netdev;
+        skb->len = RCVPOST_BUF_SIZE;
+        /* current value of mtu doesn't come into play here; large
+         * packets will just end up using multiple rcv buffers all of
+         * same size
+         */
+        skb->data_len = 0;      /* dev_alloc_skb already zeroes it out.
+                                   for clarification. */
+        return skb;
+}
+
+static inline void
+post_skb(struct uiscmdrsp *cmdrsp,
+	 struct visornic_devdata *devdata, struct sk_buff *skb)
+{
+        cmdrsp->net.buf = skb;
+        cmdrsp->net.rcvpost.frag.pi_pfn = page_to_pfn(virt_to_page(skb->data));
+        cmdrsp->net.rcvpost.frag.pi_off =
+                (unsigned long)skb->data & PI_PAGE_MASK;
+        cmdrsp->net.rcvpost.frag.pi_len = skb->len;
+        cmdrsp->net.rcvpost.unique_num = devdata->uniquenum;
+
+        if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) > PI_PAGE_SIZE) {
+                LOGERRNAME(devdata->netdev,
+                           "**** pi_off:0x%x pi_len:%d SPAN ACROSS A PAGE\n",
+                           cmdrsp->net.rcvpost.frag.pi_off, skb->len);
+        } else {
+                cmdrsp->net.type = NET_RCV_POST;
+                cmdrsp->cmdtype = CMD_NET_TYPE;
+		visorchannel_signalinsert(devdata->dev->visorchannel, 
+					  IOCHAN_TO_IOPART,
+					  cmdrsp);
+                atomic_inc(&devdata->num_rcv_bufs_in_iovm);
+                /* TODO vnicinfo->datachan.chstat.sent_post++;
+		 */
+        }
+}
+
+static void
+send_rcv_posts_if_needed(struct visornic_devdata *devdata)
+{
+	int i;
+	struct net_device *netdev;
+	struct uiscmdrsp *cmdrsp = devdata->cmdrsp_rcv;
+	int cur_num_rcv_bufs_to_alloc, rcv_bufs_allocated;
+
+	/* don't do this until vnic is marked ready */
+	if (!(devdata->enabled && devdata->enab_dis_acked))
+		return;
+
+	netdev = devdata->netdev;
+	rcv_bufs_allocated = 0;
+	/* this code is trying to prevent getting stuck here forever,
+	 * but still retry it if you cant allocate them all this time.
+	 */
+	cur_num_rcv_bufs_to_alloc = devdata->num_rcv_bufs_could_not_alloc;
+	while (cur_num_rcv_bufs_to_alloc > 0) {
+		cur_num_rcv_bufs_to_alloc--;
+		for (i = 0; i < devdata->num_rcv_bufs; i++) {
+			if (devdata->rcvbuf[i])
+				continue;
+			devdata->rcvbuf[i] = alloc_rcv_buf(netdev);
+			if (!devdata->rcvbuf[i]) {
+				devdata->alloc_failed_in_if_needed_cnt++;
+				break;
+			} else {
+				rcv_bufs_allocated++;
+				post_skb(cmdrsp, devdata,
+					 devdata->rcvbuf[i]);
+				/* TODO: 
+				 * Update datachan chanstat extra_rcvbufs_sent++
+				 */
+			}	
+		}
+	}
+	devdata->num_rcv_bufs_could_not_alloc -= rcv_bufs_allocated;
+        if (devdata->num_rcv_bufs_could_not_alloc > 0) {
+                /*
+                 * this path means you failed to alloc an skb in the
+                 * normal path, and you are trying again later, and
+                 * it still fails.
+                 */
+                LOGVER("attempted to recover buffers which could not be allocated and failed");
+                LOGVER("rcv_bufs_allocated=%d, num_rcv_bufs_could_not_alloc=%d",
+                       rcv_bufs_allocated,
+                       devdata->num_rcv_bufs_could_not_alloc);
+        }
+}
+	
+static void
+drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
+{
+        unsigned long flags;
+        int qrslt;
+        struct net_device *netdev;
+
+        /* drain queue */
+        while (1) {
+		/* TODO: CLIENT ACQUIRE -- Don't really need this at the 
+		 * moment */
+		if (!visorchannel_signalremove(devdata->dev->visorchannel, 
+					       IOCHAN_FROM_IOPART,
+					       cmdrsp))
+			break; /* queue empty */
+			
+                switch (cmdrsp->net.type) {
+                case NET_RCV:
+                        DBGINF("Got NET_RCV\n");
+                	/* TODO:        dc->chstat.got_rcv++; */
+                        /* process incoming packet */
+                        //virtnic_rx(cmdrsp);
+                        break;
+                case NET_XMIT_DONE:
+                        DBGINF("Got NET_XMIT_DONE %p\n", cmdrsp->net.buf);
+                        spin_lock_irqsave(&devdata->priv_lock, flags);
+			/* TODO: dc->chstat.got_xmit_done++; */
+                        if (cmdrsp->net.xmtdone.xmt_done_result) {
+                                LOGERRNAME(devdata->netdev,
+                                           "XMIT_DONE failure buf:%p\n",
+                                           cmdrsp->net.buf);
+                                /* TODO: dc->chstat.xmit_fail++; */
+                        }
+                        /* only call queue wake if we stopped it */
+                        netdev = ((struct sk_buff *)cmdrsp->net.buf)->dev;
+                        /* ASSERT netdev == vnicinfo->netdev; */
+                        if (netdev != devdata->netdev) {
+                                LOGERRNAME(devdata->netdev, "NET_XMIT_DONE something wrong; devdata->netdev:%p != cmdrsp->net.buf)->dev:%p\n",
+                                           devdata->netdev, netdev);
+                        } else if (netif_queue_stopped(netdev)) {
+                                /*
+                                 * check to see if we have crossed
+                                 * the lower watermark for
+                                 * netif_wake_queue()
+                                 */
+				/* TODO: CLEAN UP CHANSTATS 
+                                if (((vnicinfo->datachan.chstat.sent_xmit >=
+                                    vnicinfo->datachan.chstat.got_xmit_done) &&
+                                    (vnicinfo->datachan.chstat.sent_xmit -
+                                    vnicinfo->datachan.chstat.got_xmit_done <=
+                                    vnicinfo->lower_threshold_net_xmits)) ||
+                                    ((vnicinfo->datachan.chstat.sent_xmit <
+                                    vnicinfo->datachan.chstat.got_xmit_done) &&
+                                    (ULONG_MAX -
+                                    vnicinfo->datachan.chstat.got_xmit_done
+                                    + vnicinfo->datachan.chstat.sent_xmit <=
+                                    vnicinfo->lower_threshold_net_xmits))) {
+                                        *
+                                         * enough NET_XMITs completed
+                                         * so can restart netif queue
+                                         *
+                                        netif_wake_queue(netdev);
+                                        vnicinfo->flow_control_lower_hits++;
+                                }
+				*/
+                        }
+                        skb_unlink(cmdrsp->net.buf, &devdata->xmitbufhead);
+                        spin_unlock_irqrestore(&devdata->priv_lock, flags);
+                        kfree_skb(cmdrsp->net.buf);
+                        break;
+                case NET_RCV_ENBDIS_ACK:
+                        DBGINF("Got NET_RCV_ENBDIS_ACK on:%p\n",
+                               (struct net_device *)
+                               cmdrsp->net.enbdis.context);
+			/* TODO: dc->chstat.got_enbdisack++; */
+                        netdev = (struct net_device *)
+                                cmdrsp->net.enbdis.context;
+                        spin_lock_irqsave(&devdata->priv_lock, flags);
+                        devdata->enab_dis_acked = 1;
+                        spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+                        if (devdata->server_down &&
+                            devdata->server_change_state) {
+                                /* Inform Linux that the link is up */
+                                devdata->server_down = false;
+                                devdata->server_change_state = false;
+                                netif_wake_queue(netdev);
+                                netif_carrier_on(netdev);
+                        }
+                        break;
+                case NET_CONNECT_STATUS:
+                        DBGINF("NET_CONNECT_STATUS, enable=:%d\n",
+                               cmdrsp->net.enbdis.enable);
+                        netdev = devdata->netdev;
+                        if (cmdrsp->net.enbdis.enable == 1) {
+                                spin_lock_irqsave(&devdata->priv_lock, flags);
+                                devdata->enabled = cmdrsp->net.enbdis.enable;
+                                spin_unlock_irqrestore(&devdata->priv_lock,
+                                                       flags);
+                                netif_wake_queue(netdev);
+                                netif_carrier_on(netdev);
+                        } else {
+                                netif_stop_queue(netdev);
+                                netif_carrier_off(netdev);
+                                spin_lock_irqsave(&devdata->priv_lock, flags);
+                                devdata->enabled = cmdrsp->net.enbdis.enable;
+                                spin_unlock_irqrestore(&devdata->priv_lock,
+                                                       flags);
+                        }
+                        break;
+                default:
+                        LOGERRNAME(devdata->netdev,
+                                   "Invalid net type:%d in cmdrsp\n",
+                                   cmdrsp->net.type);
+                        break;
+                }
+                /* cmdrsp is now available for reuse  */
+
+		/* TODO: 
+		if (dc->chinfo.threadinfo.should_stop)
+                        break;
+		 */
+        }
+}
+
+static int
+process_incoming_rsps(void *v)
+{ 
+	struct visornic_devdata *devdata = v; 
+	struct uiscmdrsp *cmdrsp = NULL;
+	const int SZ = SIZEOF_CMDRSP;
+
+	UIS_DAEMONIZE("vnic_incoming");
+	cmdrsp = kmalloc(SZ, GFP_ATOMIC);
+	if (!cmdrsp)
+		complete_and_exit(&devdata->threadinfo.has_stopped, 0);
+
+	while (1) { 
+		wait_event_interruptible_timeout(
+			devdata->rsp_queue, (atomic_read(
+					     &devdata->interrupt_rcvd) == 1),
+				msecs_to_jiffies(devdata->thread_wait_ms));
+
+		/* 
+		 * periodically check to see if there are any rcf bufs which
+		 * need to get sent to the IOSP. This can only happen if
+		 * we run out of memory when trying to allocate skbs.
+		 */
+		atomic_set(&devdata->interrupt_rcvd, 0);
+		send_rcv_posts_if_needed(devdata);
+		drain_queue(cmdrsp, devdata);
+		// uisqueue_interlocked_or
+		if (devdata->threadinfo.should_stop)
+			break;
+	}
+
+	kfree(cmdrsp);
+	complete_and_exit(&devdata->threadinfo.has_stopped, 0);
+}
+
+
 static int visornic_probe(struct visor_device *dev)
 {
 	struct visornic_devdata *devdata = NULL;
@@ -383,6 +658,7 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_read_channel(dev, channel_offset, &netdev->mtu, 4);
 
 	/* TODO: Setup Interrupt information */
+	//devdata->intr = virtpcidev->intr;
 
 	/* Let's start our threads to get responses */
 	channel_offset = offsetof(struct spar_io_channel_protocol,
@@ -390,22 +666,29 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_read_channel(dev, channel_offset, &features, 8);
 	features |= ULTRA_IO_CHANNEL_IS_POLLING;
 	visorbus_write_channel(dev, channel_offset, &features, 8);
-	
-	/* TODO: Get queue features flag and save it off */
+
 	devdata->thread_wait_ms = 2;
-	/* TODO: Start threads for process_incoming */
+	visor_thread_start(&devdata->threadinfo, process_incoming_rsps, &devdata, "vnic_incoming");
 
 	/* create debgug/sysfs directories */ 
 	devdata->eth_debugfs_dir = debugfs_create_dir(netdev->name, 
 						      visornic_debugfs_dir);
 	if (!devdata->eth_debugfs_dir) { 
-		uisthread_stop(&devdata->threadinfo);
+		visor_thread_stop(&devdata->threadinfo);
 		kfree(devdata->cmdrsp_rcv);
 		kfree(devdata->rcvbuf);
 		free_netdev(netdev);
 		return -ENOMEM;
 	}
 
+	err = register_netdev(netdev); 
+	if (err) { 
+		visor_thread_stop(&devdata->threadinfo); 
+		kfree(devdata->cmdrsp_rcv);
+		kfree(devdata->rcvbuf);
+		free_netdev(netdev);	
+		return err;
+	}	
 	INFODRV("%s finished", __func__);
 	return 0;
 }
