@@ -471,6 +471,93 @@ visornic_open(struct net_device *netdev)
 	return 0;
 }
 
+static int
+visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
+{
+	struct visornic_devdata *devdata = netdev_priv(netdev);
+	int i;
+	unsigned long flags;
+	int wait = 0;
+
+	/* stop the transmit queue so nothing more can be transmitted */
+	netif_stop_queue(netdev);
+
+	/* send a msg telling the other end we are stopping incoming pkts */
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	devdata->enabled = 0;
+	devdata->enab_dis_acked = 0; /* must wait for ack */
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	/* send disable and wait for ack -- don't hold lock when sending 
+	 * disable because if the queue is full, insert might sleep.
+	 */
+	send_enbdis(netdev, 0, devdata);
+
+	/* wait for ack to arrive before we try to free rcv buffers
+	 * NOTE: the other end automatically unposts the rcv buffers when
+	 * when it gets a disable.
+	 */
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
+	       (wait < timeout)) {
+		if (devdata->n_rcv_packet_not_accepted)	
+			break;
+		if (devdata->server_down || devdata->server_change_state) {
+			spin_unlock_irqrestore(&devdata->priv_lock, flags);
+			return -1;
+		}
+		set_current_state(TASK_INTERRUPTIBLE);
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		wait += schedule_timeout(msecs_to_jiffies(10));
+		spin_lock_irqsave(&devdata->priv_lock, flags);
+	}
+	/* 
+	 * Wait for usage to go to 1 (no other users) before freeing
+	 * rcv buffers
+	 */
+	if (atomic_read(&devdata->usage) > 1) {
+		while (1) {
+			set_current_state(TASK_INTERRUPTIBLE);
+			spin_unlock_irqrestore(&devdata->priv_lock, flags);
+			schedule_timeout(msecs_to_jiffies(10));
+			spin_lock_irqsave(&devdata->priv_lock, flags);
+			if (atomic_read(&devdata->usage))
+				break;
+		}
+	}
+	/* we've set enabled to 0, so we can give up the lock. */
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+	
+	/* 
+	 * Free rcv buffers - other end has automatically unposed them on 
+	 * disable
+	 */
+	for (i =0; i < devdata->num_rcv_bufs; i++) {
+		if (devdata->rcvbuf[i]) {
+			kfree_skb(devdata->rcvbuf[i]);
+			devdata->rcvbuf[i] = NULL;
+		}
+	}
+	
+	/* remove references from array */
+	for (i = 0; i < VISORNICSOPENMAX; i++) 
+		if (num_visornic_open[i] == netdev) {
+			num_visornic_open[i] = NULL;
+			break;
+		}
+
+	return 0;
+}
+
+static int
+visornic_close(struct net_device *netdev)
+{
+	netif_stop_queue(netdev);
+	visornic_disable_with_timeout(netdev, VISORNIC_INFINITE_RESPONSE_WAIT);
+	
+	return 0;
+}
+
 static inline int
 repost_return(
 	struct uiscmdrsp *cmdrsp,
@@ -887,8 +974,8 @@ visornic_ISR(int irq, void *dev_id)
 }
 
 static const struct net_device_ops visornic_dev_ops = {
-	.ndo_open = visornic_open, /*
-	.ndo_close = visornic_close,
+	.ndo_open = visornic_open, 
+	.ndo_stop = visornic_close, /*
 	.ndo_start_xmit = visornic_xmit,
 	.ndo_get_stats = visornic_get_stats,
 	.ndo_do_ioctl = visornic_ioctl,
