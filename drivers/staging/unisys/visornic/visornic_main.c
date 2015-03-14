@@ -119,8 +119,7 @@ struct uisqueue_info {
 
 struct visor_thread_info {
 	struct task_struct *task;
-	struct completion has_stopped;  // REMOVE
-	int should_stop; // REMOVE
+	struct completion has_stopped;
 	int id;
 };
 
@@ -165,13 +164,15 @@ struct visornic_devdata {
 	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
 	struct net_device *netdev;
+	struct net_device_stats net_stats;
 	atomic_t interrupt_rcvd;
 	wait_queue_head_t rsp_queue;
 	struct sk_buff **rcvbuf;
 	unsigned long long uniquenum;
 
-	int num_rcv_bufs;		 /* indicates how many rcv buffers
-					    the vnic will post */
+	atomic_t usage;			/* count of users */
+	int num_rcv_bufs;		/* indicates how many rcv buffers
+					   the vnic will post */
 	int num_rcv_bufs_could_not_alloc;
 	atomic_t num_rcv_bufs_in_iovm;
 	unsigned long alloc_failed_in_if_needed_cnt;
@@ -199,17 +200,47 @@ struct visornic_devdata {
 	unsigned long long busy_cnt;
 	spinlock_t insertlock; /* spinlock to put items into our queues */
 	spinlock_t priv_lock; /* spinlock to access devdata structures */
+	
+	/* debug counters */
+	ulong n_rcv0;			/* # rcvs of 0 buffers */
+	ulong n_rcv1;			/* # rcvs of 1 buffers */
+	ulong n_rcv2;			/* # rcvs of 2 buffers */
+	ulong n_rcvx;			/* # rcvs of >2 buffers */
+	ulong found_repost_rcvbuf_cnt;	/* #times we called repost_rcvbuf_cnt*/
+	ulong repost_found_skb_cnt;	/* # times found the skb */
+	ulong n_repost_deficit;		/* # times we couldn't find all of the
+					   rcv buffers */
+	ulong bad_rcv_buf;		/* # times we negleted to free the
+					   rcv skb because we didn't know
+					   where it came from */
+	ulong n_rcv_packet_not_accepted;/* # bogs rcv packets */
 };
 
 int visor_thread_start(struct visor_thread_info *thrinfo,
 		       int (*threadfn)(void *),
 		       void *thrcontext, char *name)
 {
+	/* used to stop the thread */
+	init_completion(&thrinfo->has_stopped);
+	thrinfo->task = kthread_run(threadfn, thrcontext, name);
+	if (IS_ERR(thrinfo->task)) {
+		thrinfo->id = 0;
+		return 0;
+	}
+	thrinfo->id = thrinfo->task->pid;
 	return 0;
 }
 
 void visor_thread_stop(struct visor_thread_info *thrinfo)
 {
+	if (!thrinfo->id)
+		return;	/* thread not running */
+
+	kthread_stop(thrinfo->task);
+	/* give up if the thread has NOT died in 1 minute */
+	if (wait_for_completion_timeout(&thrinfo->has_stopped, 60 * HZ))
+		thrinfo->id = 0;
+
 }
 
 /** DebugFS code
@@ -245,6 +276,421 @@ visornic_serverdown_complete(struct work_struct *work)
   */
 static LIST_HEAD(list_all_devices);
 static DEFINE_SPINLOCK(lock_all_devices);
+
+static struct sk_buff *
+alloc_rcv_buf(struct net_device *netdev)
+{
+	struct sk_buff *skb;
+/*
+ * NOTE: the first fragment in each rcv buffer is pointed to by rcvskb->data.
+ * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
+ * is large enough to hold 1514.
+ */
+	DBGINF("netdev->name <<%s>>:  allocating skb len:%d\n", netdev->name,
+	       RCVPOST_BUF_SIZE);
+	skb = alloc_skb(RCVPOST_BUF_SIZE, GFP_ATOMIC | __GFP_NOWARN);
+	if (!skb) {
+		LOGVER("**** alloc_skb failed\n");
+		return NULL;
+	}
+	skb->dev = netdev;
+	skb->len = RCVPOST_BUF_SIZE;
+	/* current value of mtu doesn't come into play here; large
+	 * packets will just end up using multiple rcv buffers all of
+	 * same size
+	 */
+	skb->data_len = 0;      /* dev_alloc_skb already zeroes it out.
+				   for clarification. */
+	return skb;
+}
+
+static inline void
+post_skb(struct uiscmdrsp *cmdrsp,
+	 struct visornic_devdata *devdata, struct sk_buff *skb)
+{
+	cmdrsp->net.buf = skb;
+	cmdrsp->net.rcvpost.frag.pi_pfn = page_to_pfn(virt_to_page(skb->data));
+	cmdrsp->net.rcvpost.frag.pi_off =
+		(unsigned long)skb->data & PI_PAGE_MASK;
+	cmdrsp->net.rcvpost.frag.pi_len = skb->len;
+	cmdrsp->net.rcvpost.unique_num = devdata->uniquenum;
+
+	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) > PI_PAGE_SIZE) {
+		LOGERRNAME(devdata->netdev,
+			   "**** pi_off:0x%x pi_len:%d SPAN ACROSS A PAGE\n",
+			   cmdrsp->net.rcvpost.frag.pi_off, skb->len);
+	} else {
+		cmdrsp->net.type = NET_RCV_POST;
+		cmdrsp->cmdtype = CMD_NET_TYPE;
+		visorchannel_signalinsert(devdata->dev->visorchannel,
+					  IOCHAN_TO_IOPART,
+					  cmdrsp);
+		atomic_inc(&devdata->num_rcv_bufs_in_iovm);
+		/* TODO vnicinfo->datachan.chstat.sent_post++;
+		 */
+	}
+}
+
+static inline int
+repost_return(
+	struct uiscmdrsp *cmdrsp,
+	struct visornic_devdata *devdata,
+	struct sk_buff *skb,
+	struct net_device *netdev)
+{
+	struct net_pkt_rcv copy;
+	int i = 0, cc, numreposted;
+	int found_skb = 0;
+	int status = 0;
+
+	copy = cmdrsp->net.rcv;
+	LOGVER("REPOST_RETURN: realloc rcv skbs to replace:%d rcvbufs\n",
+	       copy.numrcvbufs);
+	switch (copy.numrcvbufs) {
+	case 0:
+		devdata->n_rcv0++;
+		break;
+	case 1:
+		devdata->n_rcv1++;
+		break;
+	case 2:
+		devdata->n_rcv2++;
+		break;
+	default:
+		devdata->n_rcvx++;
+		break;
+	}
+	for (cc = 0, numreposted = 0; cc < copy.numrcvbufs; cc++) {
+		for (i = 0; i < devdata->num_rcv_bufs; i++) {
+			if (devdata->rcvbuf[i] != copy.rcvbuf[cc])
+				continue;
+
+			LOGVER("REPOST_RETURN: orphaning old rcvbuf[%d]:%p cc=%d",
+			       i, devdata->rcvbuf[i], cc);
+			if ((skb) && devdata->rcvbuf[i] == skb) {
+				devdata->found_repost_rcvbuf_cnt++;
+				found_skb = 1;
+				devdata->repost_found_skb_cnt++;
+			}
+			devdata->rcvbuf[i] = alloc_rcv_buf(netdev);
+			if (!devdata->rcvbuf[i]) {
+				LOGVER("**** %s FAILED to reallocate new rcv buf - no REPOST, found_skb=%d, cc=%d, i=%d\n",
+				       netdev->name, found_skb, cc, i);
+				devdata->num_rcv_bufs_could_not_alloc++;
+				devdata->alloc_failed_in_repost_return_cnt++;
+				status = -1;
+				break;
+			}
+			LOGVER("REPOST_RETURN: reposting new rcvbuf[%d]:%p\n",
+			       i, devdata->rcvbuf[i]);
+			post_skb(cmdrsp, devdata, devdata->rcvbuf[i]);
+			numreposted++;
+			break;
+		}
+	}
+	LOGVER("REPOST_RETURN: num rcvbufs posted:%d\n", numreposted);
+	if (numreposted != copy.numrcvbufs) {
+		LOGVER("**** %s FAILED to repost all the rcv bufs; numreposted:%d rcv.numrcvbufs:%d\n",
+		       netdev->name, numreposted, copy.numrcvbufs);
+		devdata->n_repost_deficit++;
+		status = -1;
+	}
+	if (skb) {
+		if (found_skb) {
+			LOGVER("REPOST_RETURN: skb is %p - freeing it", skb);
+			kfree_skb(skb);
+		} else {
+			LOGERRNAME(devdata->netdev, "%s REPOST_RETURN: skb %p NOT found in rcvbuf list!!",
+				   netdev->name, skb);
+			status = -3;
+			devdata->bad_rcv_buf++;
+		}
+	}
+	atomic_dec(&devdata->usage);
+	return status;
+}
+
+static void
+visornic_rx(struct uiscmdrsp *cmdrsp)
+{
+	struct visornic_devdata *devdata;
+	struct sk_buff *skb, *prev, *curr;
+	struct net_device *netdev;
+	int cc, currsize, off, status;
+	struct ethhdr *eth;
+	unsigned long flags;
+#ifdef DEBUG
+	struct phys_info testfrags[MAX_PHYS_INFO];
+#endif
+
+/*
+ * post new rcv buf to the other end using the cmdrsp we have at hand
+ * post it without holding lock - but we'll use the signal lock to synchronize
+ * the queue insert the cmdrsp that contains the net.rcv is the one we are
+ * using to repost, so copy the info we need from it.
+ */
+	skb = cmdrsp->net.buf;
+	netdev = skb->dev;
+
+	if (!netdev) {
+		/* We must have previously downed this network device and
+		 * this skb and device is no longer valid. This also means
+		 * the skb reference was removed from virtnic->rcvbuf so no
+		 * need to search for it.
+		 * All we can do is free the skb and return.
+		 * Note: We crash if we try to log this here.
+		 */
+		kfree_skb(skb);
+		return;
+	}
+
+	devdata = netdev_priv(netdev);
+
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	atomic_dec(&devdata->num_rcv_bufs_in_iovm);
+
+	/* update rcv stats - call it with priv_lock held */
+	devdata->net_stats.rx_packets++;
+	devdata->net_stats.rx_bytes == skb->len;
+
+	atomic_inc(&devdata->usage);	/* don't want a close to happen before
+					   we're done here */
+	/*
+	 * set length to how much was ACTUALLY received -
+	 * NOTE: rcv_done_len includes actual length of data rcvd
+	 * including ethhdr
+	 */
+	skb->len = cmdrsp->net.rcv.rcv_done_len;
+
+	/* test enabled while holding lock */
+	if (!(devdata->enabled && devdata->enab_dis_acked)) {
+		/*
+		 * don't process it unless we're in enable mode and until
+		 * we've gotten an ACK saying the other end got our RCV enable
+		 */
+		LOGERRNAME(devdata->netdev,
+			   "%s dropping packet - perhaps old\n", netdev->name);
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
+			LOGERRNAME(devdata->netdev, "repost_return failed");
+		return;
+	}
+
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	/*
+	 * when skb was allocated, skb->dev, skb->data, skb->len and
+	 * skb->data_len were setup. AND, data has already put into the
+	 * skb (both first frag and in frags pages)
+	 * NOTE: firstfragslen is the amount of data in skb->data and that
+	 * which is not in nr_frags or frag_list. This is now simply
+	 * RCVPOST_BUF_SIZE. bump tail to show how much data is in
+	 * firstfrag & set data_len to show rest see if we have to chain
+	 * frag_list.
+	 */
+	if (skb->len > RCVPOST_BUF_SIZE) {	/* do PRECAUTIONARY check */
+		if (cmdrsp->net.rcv.numrcvbufs < 2) {
+			LOGERRNAME(devdata->netdev, "**** %s Something is wrong; rcv_done_len:%d > RCVPOST_BUF_SIZE:%d but numrcvbufs:%d < 2\n",
+				   netdev->name, skb->len, RCVPOST_BUF_SIZE,
+				   cmdrsp->net.rcv.numrcvbufs);
+			if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
+				LOGERRNAME(devdata->netdev,
+					   "repost_return failed");
+			return;
+		}
+		/* length rcvd is greater than firstfrag in this skb rcv buf  */
+		skb->tail += RCVPOST_BUF_SIZE;	/* amount in skb->data */
+		skb->data_len = skb->len - RCVPOST_BUF_SIZE;	/* amount that
+								   will be in
+								   frag_list */
+		DBGINF("len:%d data:%d\n", skb->len, skb->data_len);
+	} else {
+		/*
+		 * data fits in this skb - no chaining - do PRECAUTIONARY check
+		 */
+		if (cmdrsp->net.rcv.numrcvbufs != 1) {	/* should be 1 */
+			LOGERRNAME(devdata->netdev, "**** %s Something is wrong; rcv_done_len:%d <= RCVPOST_BUF_SIZE:%d but numrcvbufs:%d != 1\n",
+				   netdev->name, skb->len, RCVPOST_BUF_SIZE,
+				   cmdrsp->net.rcv.numrcvbufs);
+			if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
+				LOGERRNAME(devdata->netdev,
+					   "repost_return failed");
+			return;
+		}
+		skb->tail += skb->len;
+		skb->data_len = 0;	/* nothing rcvd in frag_list */
+	}
+	off = skb_tail_pointer(skb) - skb->data;
+	/*
+	 * amount we bumped tail by in the head skb
+	 * it is used to calculate the size of each chained skb below
+	 * it is also used to index into bufline to continue the copy
+	 * (for chansocktwopc)
+	 * if necessary chain the rcv skbs together.
+	 * NOTE: index 0 has the same as cmdrsp->net.rcv.skb; we need to
+	 * chain the rest to that one.
+	 * - do PRECAUTIONARY check
+	 */
+	if (cmdrsp->net.rcv.rcvbuf[0] != skb) {
+		LOGERRNAME(devdata->netdev, "**** %s Something is wrong; rcvbuf[0]:%p != skb:%p\n",
+			   netdev->name, cmdrsp->net.rcv.rcvbuf[0], skb);
+		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
+			LOGERRNAME(devdata->netdev, "repost_return failed");
+		return;
+	}
+
+	if (cmdrsp->net.rcv.numrcvbufs > 1) {
+		/* chain the various rcv buffers into the skb's frag_list. */
+		/* Note: off was initialized above  */
+		for (cc = 1, prev = NULL;
+		     cc < cmdrsp->net.rcv.numrcvbufs; cc++) {
+			curr = (struct sk_buff *)cmdrsp->net.rcv.rcvbuf[cc];
+			curr->next = NULL;
+			DBGINF("chaining skb:%p data:%p to skb:%p data:%p\n",
+			       curr, curr->data, skb, skb->data);
+			if (prev == NULL)	/* start of list- set head */
+				skb_shinfo(skb)->frag_list = curr;
+			else
+				prev->next = curr;
+			prev = curr;
+			/*
+			 * should we set skb->len and skb->data_len for each
+			 * buffer being chained??? can't hurt!
+			 */
+			currsize =
+			    min(skb->len - off,
+				(unsigned int)RCVPOST_BUF_SIZE);
+			curr->len = currsize;
+			curr->tail += currsize;
+			curr->data_len = 0;
+			off += currsize;
+		}
+#ifdef DEBUG
+		/* assert skb->len == off */
+		if (skb->len != off) {
+			LOGERRNAME(devdata->netdev, "%s something wrong; skb->len:%d != off:%d\n",
+				   netdev->name, skb->len, off);
+		}
+		/* test code */
+		cc = util_copy_fragsinfo_from_skb("rcvchaintest", skb,
+						  RCVPOST_BUF_SIZE,
+						  MAX_PHYS_INFO, testfrags);
+		LOGINFNAME(devdata->netdev, "rcvchaintest returned:%d\n", cc);
+		if (cc != cmdrsp->net.rcv.numrcvbufs) {
+			LOGERRNAME(devdata->netdev, "**** %s Something wrong; rcvd chain length %d different from one we calculated %d\n",
+				   netdev->name, cmdrsp->net.rcv.numrcvbufs,
+				   cc);
+		}
+		for (i = 0; i < cc; i++) {
+			LOGINFNAME(devdata->netdev, "test:RCVPOST_BUF_SIZE:%d[%d] pfn:%llu off:0x%x len:%d\n",
+				   RCVPOST_BUF_SIZE, i, testfrags[i].pi_pfn,
+				   testfrags[i].pi_off, testfrags[i].pi_len);
+		}
+#endif
+	}
+
+	/* set up packet's protocl type using ethernet header - this
+	 * sets up skb->pkt_type & it also PULLS out the eth header
+	 */
+	skb->protocol = eth_type_trans(skb, netdev);
+
+	eth = eth_hdr(skb);
+
+	DBGINF("%d Src:%02x:%02x:%02x:%02x:%02x:%02x Dest:%02x:%02x:%02x:%02x:%02x:%02x proto:%x\n",
+	       skb->pkt_type, eth->h_source[0], eth->h_source[1],
+	       eth->h_source[2], eth->h_source[3], eth->h_source[4],
+	       eth->h_source[5], eth->h_dest[0], eth->h_dest[1], eth->h_dest[2],
+	       eth->h_dest[3], eth->h_dest[4], eth->h_dest[5], eth->h_proto);
+
+	skb->csum = 0;
+	skb->ip_summed = CHECKSUM_NONE;	/* trust me, the checksum has
+					   been verified */
+
+	do {
+		if (netdev->flags & IFF_PROMISC) {
+			DBGINF("IFF_PROMISC is set.\n");
+			break;	/* accept all packets */
+		}
+		if (skb->pkt_type == PACKET_BROADCAST) {
+			DBGINF("packet is broadcast.\n");
+			if (netdev->flags & IFF_BROADCAST) {
+				DBGINF("IFF_BROADCAST is set.\n");
+				break;	/* accept all broadcast packets */
+			}
+		} else if (skb->pkt_type == PACKET_MULTICAST) {
+			DBGINF("packet is multicast.\n");
+			if (netdev->flags & IFF_ALLMULTI)
+				DBGINF("IFF_ALLMULTI is set.\n");
+			if ((netdev->flags & IFF_MULTICAST) &&
+			    (netdev_mc_count(netdev))) {
+				struct netdev_hw_addr *ha;
+				int found_mc = 0;
+
+				DBGINF("IFF_MULTICAST is set %d.\n",
+				       netdev_mc_count(netdev));
+				/*
+				 * only accept multicast packets that we can
+				 * find in our multicast address list
+				 */
+				netdev_for_each_mc_addr(ha, netdev) {
+					if (memcmp
+					    (eth->h_dest, ha->addr,
+					     MAX_MACADDR_LEN) == 0) {
+						DBGINF("multicast address is in our list at index:%i.\n", i);
+						found_mc = 1;
+						break;
+					}
+				}
+				if (found_mc) {
+					break;	/* accept packet, dest
+						   matches a multicast
+						   address */
+				}
+			}
+		} else if (skb->pkt_type == PACKET_HOST) {
+			DBGINF("packet is directed.\n");
+			break;	/* accept packet, h_dest must match vnic
+				   mac address */
+		} else if (skb->pkt_type == PACKET_OTHERHOST) {
+			/* something is not right */
+			LOGERRNAME(devdata->netdev, "**** FAILED to deliver rcv packet to OS; name:%s Dest:%02x:%02x:%02x:%02x:%02x:%02x VNIC:%02x:%02x:%02x:%02x:%02x:%02x\n",
+				   netdev->name, eth->h_dest[0], eth->h_dest[1],
+				   eth->h_dest[2], eth->h_dest[3],
+				   eth->h_dest[4], eth->h_dest[5],
+				   netdev->dev_addr[0], netdev->dev_addr[1],
+				   netdev->dev_addr[2], netdev->dev_addr[3],
+				   netdev->dev_addr[4], netdev->dev_addr[5]);
+		}
+		/* drop packet - don't forward it up to OS */
+		DBGINF("we cannot indicate this recv pkt! (netdev->flags:0x%04x, skb->pkt_type:0x%02x).\n",
+		       netdev->flags, skb->pkt_type);
+		devdata->n_rcv_packet_not_accepted++;
+		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
+			LOGERRNAME(devdata->netdev, "repost_return failed");
+		return;
+	} while (0);
+
+	DBGINF("Calling netif_rx skb:%p head:%p end:%p data:%p tail:%p len:%d data_len:%d skb->nr_frags:%d\n",
+	       skb, skb->head, skb->end, skb->data, skb->tail, skb->len,
+	       skb->data_len, skb_shinfo(skb)->nr_frags);
+
+	status = netif_rx(skb);
+	if (status != NET_RX_SUCCESS)
+		LOGWRNNAME(devdata->netdev, "status=%d\n", status);
+	/*
+	 * netif_rx returns various values, but "in practice most drivers
+	 * ignore the return value
+	 */
+
+	skb = NULL;
+	/*
+	 * whether the packet got dropped or handled, the skb is freed by
+	 * kernel code, so we shouldn't free it. but we should repost a
+	 * new rcv buffer.
+	 */
+	if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
+		LOGVER("repost_return failed");
+}
 
 static struct visornic_devdata *
 devdata_initialize(struct visornic_devdata *devdata, struct visor_device *dev)
@@ -310,60 +756,6 @@ static const struct net_device_ops visornic_dev_ops = {
 	.ndo_tx_timeout = visornic_xmit_timeout,
 	.ndo_set_rx_mode = visornic_set_multi, */
 };
-
-static struct sk_buff *
-alloc_rcv_buf(struct net_device *netdev)
-{
-	struct sk_buff *skb;
-/*
- * NOTE: the first fragment in each rcv buffer is pointed to by rcvskb->data.
- * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
- * is large enough to hold 1514.
- */
-	DBGINF("netdev->name <<%s>>:  allocating skb len:%d\n", netdev->name,
-	       RCVPOST_BUF_SIZE);
-	skb = alloc_skb(RCVPOST_BUF_SIZE, GFP_ATOMIC | __GFP_NOWARN);
-	if (!skb) {
-		LOGVER("**** alloc_skb failed\n");
-		return NULL;
-	}
-	skb->dev = netdev;
-	skb->len = RCVPOST_BUF_SIZE;
-	/* current value of mtu doesn't come into play here; large
-	 * packets will just end up using multiple rcv buffers all of
-	 * same size
-	 */
-	skb->data_len = 0;      /* dev_alloc_skb already zeroes it out.
-				   for clarification. */
-	return skb;
-}
-
-static inline void
-post_skb(struct uiscmdrsp *cmdrsp,
-	 struct visornic_devdata *devdata, struct sk_buff *skb)
-{
-	cmdrsp->net.buf = skb;
-	cmdrsp->net.rcvpost.frag.pi_pfn = page_to_pfn(virt_to_page(skb->data));
-	cmdrsp->net.rcvpost.frag.pi_off =
-		(unsigned long)skb->data & PI_PAGE_MASK;
-	cmdrsp->net.rcvpost.frag.pi_len = skb->len;
-	cmdrsp->net.rcvpost.unique_num = devdata->uniquenum;
-
-	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) > PI_PAGE_SIZE) {
-		LOGERRNAME(devdata->netdev,
-			   "**** pi_off:0x%x pi_len:%d SPAN ACROSS A PAGE\n",
-			   cmdrsp->net.rcvpost.frag.pi_off, skb->len);
-	} else {
-		cmdrsp->net.type = NET_RCV_POST;
-		cmdrsp->cmdtype = CMD_NET_TYPE;
-		visorchannel_signalinsert(devdata->dev->visorchannel,
-					  IOCHAN_TO_IOPART,
-					  cmdrsp);
-		atomic_inc(&devdata->num_rcv_bufs_in_iovm);
-		/* TODO vnicinfo->datachan.chstat.sent_post++;
-		 */
-	}
-}
 
 static void
 send_rcv_posts_if_needed(struct visornic_devdata *devdata)
@@ -435,7 +827,7 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			DBGINF("Got NET_RCV\n");
 			/* TODO:        dc->chstat.got_rcv++; */
 			/* process incoming packet */
-			//virtnic_rx(cmdrsp);
+			visornic_rx(cmdrsp);
 			break;
 		case NET_XMIT_DONE:
 			DBGINF("Got NET_XMIT_DONE %p\n", cmdrsp->net.buf);
@@ -532,10 +924,8 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 		}
 		/* cmdrsp is now available for reuse  */
 
-		/* TODO:
-		if (dc->chinfo.threadinfo.should_stop)
+		if (kthread_should_stop())
 			break;
-		 */
 	}
 }
 
@@ -566,7 +956,7 @@ process_incoming_rsps(void *v)
 		send_rcv_posts_if_needed(devdata);
 		drain_queue(cmdrsp, devdata);
 		// uisqueue_interlocked_or
-		if (devdata->threadinfo.should_stop)
+		if (kthread_should_stop())
 			break;
 	}
 
@@ -612,6 +1002,7 @@ static int visornic_probe(struct visor_device *dev)
 	devdata->netdev = netdev;
 	init_waitqueue_head(&devdata->rsp_queue);
 	devdata->enabled = 0; /* not yet */
+	atomic_set(&devdata->usage, 1);
 	
 	visorchipset_get_device_info(dev->chipset_bus_no,
 				     dev->chipset_dev_no,
