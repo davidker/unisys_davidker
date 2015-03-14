@@ -200,7 +200,7 @@ struct visornic_devdata {
 	unsigned long long busy_cnt;
 	spinlock_t insertlock; /* spinlock to put items into our queues */
 	spinlock_t priv_lock; /* spinlock to access devdata structures */
-	
+
 	/* debug counters */
 	ulong n_rcv0;			/* # rcvs of 0 buffers */
 	ulong n_rcv1;			/* # rcvs of 1 buffers */
@@ -240,7 +240,6 @@ void visor_thread_stop(struct visor_thread_info *thrinfo)
 	/* give up if the thread has NOT died in 1 minute */
 	if (wait_for_completion_timeout(&thrinfo->has_stopped, 60 * HZ))
 		thrinfo->id = 0;
-
 }
 
 /** DebugFS code
@@ -548,7 +547,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 			curr->next = NULL;
 			DBGINF("chaining skb:%p data:%p to skb:%p data:%p\n",
 			       curr, curr->data, skb, skb->data);
-			if (prev == NULL)	/* start of list- set head */
+			if (!prev)	/* start of list- set head */
 				skb_shinfo(skb)->frag_list = curr;
 			else
 				prev->next = curr;
@@ -887,7 +886,7 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			devdata->enab_dis_acked = 1;
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
-			if (devdata->server_down && 
+			if (devdata->server_down &&
 			    devdata->server_change_state) {
 				/* Inform Linux that the link is up */
 				devdata->server_down = false;
@@ -1003,7 +1002,7 @@ static int visornic_probe(struct visor_device *dev)
 	init_waitqueue_head(&devdata->rsp_queue);
 	devdata->enabled = 0; /* not yet */
 	atomic_set(&devdata->usage, 1);
-	
+
 	visorchipset_get_device_info(dev->chipset_bus_no,
 				     dev->chipset_dev_no,
 				     devdata->dev_chipset);
@@ -1058,7 +1057,8 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_write_channel(dev, channel_offset, &features, 8);
 
 	devdata->thread_wait_ms = 2;
-	visor_thread_start(&devdata->threadinfo, process_incoming_rsps, &devdata, "vnic_incoming");
+	visor_thread_start(&devdata->threadinfo, process_incoming_rsps,
+			   &devdata, "vnic_incoming");
 
 	/* create debgug/sysfs directories */
 	devdata->eth_debugfs_dir = debugfs_create_dir(netdev->name,
