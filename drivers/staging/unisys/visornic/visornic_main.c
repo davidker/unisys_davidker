@@ -201,6 +201,10 @@ struct visornic_devdata {
 	spinlock_t insertlock; /* spinlock to put items into our queues */
 	spinlock_t priv_lock; /* spinlock to access devdata structures */
 
+	/* flow control counter */
+	unsigned long long flow_control_upper_hits;
+	unsigned long long flow_control_lower_hits;
+
 	/* debug counters */
 	ulong n_rcv0;			/* # rcvs of 0 buffers */
 	ulong n_rcv1;			/* # rcvs of 1 buffers */
@@ -214,7 +218,13 @@ struct visornic_devdata {
 					   rcv skb because we didn't know
 					   where it came from */
 	ulong n_rcv_packet_not_accepted;/* # bogs rcv packets */
+
+	struct chanstat chstat;
 };
+
+#define VISORNICSOPENMAX 32
+/* array of open devices maintained by open() and close() */
+static struct net_device *num_visornic_open[VISORNICSOPENMAX];
 
 int visor_thread_start(struct visor_thread_info *thrinfo,
 		       int (*threadfn)(void *),
@@ -325,9 +335,140 @@ post_skb(struct uiscmdrsp *cmdrsp,
 					  IOCHAN_TO_IOPART,
 					  cmdrsp);
 		atomic_inc(&devdata->num_rcv_bufs_in_iovm);
-		/* TODO vnicinfo->datachan.chstat.sent_post++;
-		 */
+		devdata->chstat.sent_post++;
 	}
+}
+
+static void
+send_enbdis(struct net_device *netdev, int state,
+	    struct visornic_devdata *devdata)
+{
+	devdata->cmdrsp_rcv->net.enbdis.enable = state;
+	devdata->cmdrsp_rcv->net.enbdis.context = netdev;
+	devdata->cmdrsp_rcv->net.type = NET_RCV_ENBDIS;
+	devdata->cmdrsp_rcv->cmdtype = CMD_NET_TYPE;
+	visorchannel_signalinsert(devdata->dev->visorchannel,
+				  IOCHAN_TO_IOPART,
+				  devdata->cmdrsp_rcv);
+	devdata->chstat.sent_enbdis++;
+}
+
+static int
+init_rcv_bufs(struct net_device *netdev, struct visornic_devdata *devdata)
+{
+	int i, count;
+
+	/* allocate fixed number of receive buffers to post to uisnic
+	 * post receive buffers after we've allocated a required amount
+	 */
+	for (i = 0; i < devdata->num_rcv_bufs; i++) {
+		devdata->rcvbuf[i] = alloc_rcv_buf(netdev);
+		if (!devdata->rcvbuf[i])
+			break; /* if we failed to allocate one let us stop */
+	}
+	if (i == 0) /* couldn't even allocate one -- bail out */
+		return -ENOMEM;
+	count = i;
+
+	/* Ensure we can alloc 2/3rd of the requeested number of buffers.
+	 * 2/3 is an arbitrary choice; used also in ndis init.c
+	 */
+	if (count < ((2 * devdata->num_rcv_bufs) / 3)) {
+		/* free receive buffers we did alloc and then bail out */
+		for (i = 0; i < count; i++) {
+			kfree_skb(devdata->rcvbuf[i]);
+			devdata->rcvbuf[i] = NULL;
+		}
+		return -ENOMEM;
+	}
+
+	/* post receive buffers to receive incoming input - without holding
+	 * lock - we've not enabled nor started the queue so there shouldn't
+	 * be any rcv or xmit activity
+	 */
+	for (i = 0; i < count; i++)
+		post_skb(devdata->cmdrsp_rcv, devdata, devdata->rcvbuf[i]);
+
+	return 0;
+}
+
+/* Sends enable to IOVM, inits, and posts receive buffers to IOVM
+ *
+ * timeout is defined in msecs (timeout of 0 specifies infinite wait)
+ */
+static int
+visornic_enable_with_timeout(struct net_device *netdev, const int timeout)
+{
+	int i;
+	struct visornic_devdata *devdata = netdev_priv(netdev);
+	unsigned long flags;
+	int wait = 0;
+
+	/* NOTE: the other end automatically unposts the rcv buffers when it
+	 * gets a disable.
+	 */
+	i = init_rcv_bufs(netdev, devdata);
+	if (i < 0)
+		return i;
+
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	devdata->enabled = 1;
+
+	/* now we're ready, let's send an ENB to uisnic but until we get
+	 * an ACK back from uisnic, we'll drop the packets
+	 */
+	devdata->n_rcv_packet_not_accepted = 0;
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	/* send enable and wait for ack -- don't hold lock when sending enable
+	 * because if the queue is full, insert might sleep.
+	 */
+	send_enbdis(netdev, 1, devdata);
+
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
+	       (wait < timeout)) {
+		if (devdata->enab_dis_acked)
+			break;
+		if (devdata->server_down || devdata->server_change_state) {
+			spin_unlock_irqrestore(&devdata->priv_lock, flags);
+			return -1;
+		}
+		set_current_state(TASK_INTERRUPTIBLE);
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		wait += schedule_timeout(msecs_to_jiffies(10));
+		spin_lock_irqsave(&devdata->priv_lock, flags);
+	}
+
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	if (!devdata->enab_dis_acked)
+		return -1;
+
+	/* find an open slot in the array to save off VisorNic references
+	 * for debug
+	 */
+	for (i = 0; i < VISORNICSOPENMAX; i++) {
+		if (!num_visornic_open[i]) {
+			num_visornic_open[i] = netdev;
+			break;
+		}
+	}
+
+	return 0;
+}
+
+static int
+visornic_open(struct net_device *netdev)
+{
+	visornic_enable_with_timeout(netdev, VISORNIC_INFINITE_RESPONSE_WAIT);
+
+	/* start the interface's transmit queue, allowing it to accept
+	 * packets for transmission
+	 */
+	netif_start_queue(netdev);
+
+	return 0;
 }
 
 static inline int
@@ -746,7 +887,7 @@ visornic_ISR(int irq, void *dev_id)
 }
 
 static const struct net_device_ops visornic_dev_ops = {
-	/* .ndo_open = visornic_open,
+	.ndo_open = visornic_open, /*
 	.ndo_close = visornic_close,
 	.ndo_start_xmit = visornic_xmit,
 	.ndo_get_stats = visornic_get_stats,
@@ -824,19 +965,19 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 		switch (cmdrsp->net.type) {
 		case NET_RCV:
 			DBGINF("Got NET_RCV\n");
-			/* TODO:        dc->chstat.got_rcv++; */
+			devdata->chstat.got_rcv++;
 			/* process incoming packet */
 			visornic_rx(cmdrsp);
 			break;
 		case NET_XMIT_DONE:
 			DBGINF("Got NET_XMIT_DONE %p\n", cmdrsp->net.buf);
 			spin_lock_irqsave(&devdata->priv_lock, flags);
-			/* TODO: dc->chstat.got_xmit_done++; */
+			devdata->chstat.got_xmit_done++;
 			if (cmdrsp->net.xmtdone.xmt_done_result) {
 				LOGERRNAME(devdata->netdev,
 					   "XMIT_DONE failure buf:%p\n",
 					   cmdrsp->net.buf);
-				/* TODO: dc->chstat.xmit_fail++; */
+				devdata->chstat.xmit_fail++;
 			}
 			/* only call queue wake if we stopped it */
 			netdev = ((struct sk_buff *)cmdrsp->net.buf)->dev;
@@ -850,26 +991,23 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 				 * the lower watermark for
 				 * netif_wake_queue()
 				 */
-				/* TODO: CLEAN UP CHANSTATS
-				if (((vnicinfo->datachan.chstat.sent_xmit >=
-				    vnicinfo->datachan.chstat.got_xmit_done) &&
-				    (vnicinfo->datachan.chstat.sent_xmit -
-				    vnicinfo->datachan.chstat.got_xmit_done <=
-				    vnicinfo->lower_threshold_net_xmits)) ||
-				    ((vnicinfo->datachan.chstat.sent_xmit <
-				    vnicinfo->datachan.chstat.got_xmit_done) &&
-				    (ULONG_MAX -
-				    vnicinfo->datachan.chstat.got_xmit_done
-				    + vnicinfo->datachan.chstat.sent_xmit <=
-				    vnicinfo->lower_threshold_net_xmits))) {
-					/ *
+				if (((devdata->chstat.sent_xmit >=
+				    devdata->chstat.got_xmit_done) &&
+				    (devdata->chstat.sent_xmit -
+				    devdata->chstat.got_xmit_done <=
+				    devdata->lower_threshold_net_xmits)) ||
+				    ((devdata->chstat.sent_xmit <
+				    devdata->chstat.got_xmit_done) &&
+				    (ULONG_MAX - devdata->chstat.got_xmit_done
+				    + devdata->chstat.sent_xmit <=
+				    devdata->lower_threshold_net_xmits))) {
+					/*
 					 * enough NET_XMITs completed
 					 * so can restart netif queue
-					 * /
+					 */
 					netif_wake_queue(netdev);
-					vnicinfo->flow_control_lower_hits++;
+					devdata->flow_control_lower_hits++;
 				}
-				*/
 			}
 			skb_unlink(cmdrsp->net.buf, &devdata->xmitbufhead);
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -879,7 +1017,7 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			DBGINF("Got NET_RCV_ENBDIS_ACK on:%p\n",
 			       (struct net_device *)
 			       cmdrsp->net.enbdis.context);
-			/* TODO: dc->chstat.got_enbdisack++; */
+			devdata->chstat.got_enbdisack++;
 			netdev = (struct net_device *)
 			cmdrsp->net.enbdis.context;
 			spin_lock_irqsave(&devdata->priv_lock, flags);
