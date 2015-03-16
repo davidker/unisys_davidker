@@ -156,7 +156,8 @@ struct visornic_devdata {
 	int thread_wait_ms;
 	unsigned short enabled;		/* 0 disabled 1 enabled to receive */
 	unsigned short enab_dis_acked;	/* NET_RCV_ENABLE/DISABLE acked by
-					   IOPART */
+					 * IOPART
+					 */
 	struct visor_device *dev;
 	struct visorchipset_device_info *dev_chipset; /* IRQ Information */
 	/** lock for dev */
@@ -170,18 +171,21 @@ struct visornic_devdata {
 	wait_queue_head_t rsp_queue;
 	struct sk_buff **rcvbuf;
 	unsigned long long uniquenum;
-
+	unsigned short old_flags;	/* flags as they were prior to
+					 * set_multicast_list
+					 */
 	atomic_t usage;			/* count of users */
 	int num_rcv_bufs;		/* indicates how many rcv buffers
-					   the vnic will post */
+					 * the vnic will post
+					 */
 	int num_rcv_bufs_could_not_alloc;
 	atomic_t num_rcv_bufs_in_iovm;
 	unsigned long alloc_failed_in_if_needed_cnt;
 	unsigned long alloc_failed_in_repost_return_cnt;
 	int max_outstanding_net_xmits;   /* absolute max number of outstanding
-					    xmits - should never hit this */
+					  * xmits - should never hit this */
 	int upper_threshold_net_xmits;   /* high water mark for calling
-					    netif_stop_queue() */
+					  * netif_stop_queue() */
 	int lower_threshold_net_xmits;	 /* high water mark for calling
 					    netif_wake_queue() */
 	struct sk_buff_head xmitbufhead; /* xmitbufhead is the head of the
@@ -924,6 +928,33 @@ visornic_change_mtu(struct net_device *netdev, int new_mtu)
 }
 
 static void
+visornic_set_multi(struct net_device *netdev)
+{
+	struct uiscmdrsp *cmdrsp;
+	struct visornic_devdata *devdata = netdev_priv(netdev);
+
+	/* any filtering changes */
+	if (devdata->old_flags != netdev->flags) {
+		if ((netdev->flags & IFF_PROMISC) !=
+		    (devdata->old_flags & IFF_PROMISC)) {
+			cmdrsp = kmalloc(SIZEOF_CMDRSP, GFP_ATOMIC);
+			if (!cmdrsp)
+				return;
+			cmdrsp->cmdtype = CMD_NET_TYPE;
+			cmdrsp->net.type = NET_RCV_PROMISC;
+			cmdrsp->net.enbdis.context = netdev;
+			cmdrsp->net.enbdis.enable =
+				(netdev->flags & IFF_PROMISC);
+			visorchannel_signalinsert(devdata->dev->visorchannel,
+						  IOCHAN_TO_IOPART,
+						  cmdrsp);
+			kfree(cmdrsp);
+		}
+		devdata->old_flags = netdev->flags;
+	}
+}
+
+static void
 visornic_xmit_timeout(struct net_device *netdev)
 {
 	struct visornic_devdata *devdata = netdev_priv(netdev);
@@ -1363,8 +1394,8 @@ static const struct net_device_ops visornic_dev_ops = {
 	.ndo_get_stats = visornic_get_stats,
 	.ndo_do_ioctl = visornic_ioctl,
 	.ndo_change_mtu = visornic_change_mtu,
-	.ndo_tx_timeout = visornic_xmit_timeout, /*
-	.ndo_set_rx_mode = visornic_set_multi, */
+	.ndo_tx_timeout = visornic_xmit_timeout,
+	.ndo_set_rx_mode = visornic_set_multi,
 };
 
 static void
