@@ -360,15 +360,61 @@ static ssize_t enable_ints_write(struct file *file, const char __user *buf,
 }
 
 static void
-visornic_timeout_reset(struct work_struct *work)
-{
-	/* DO NOTHING FOR NOW */
-}
-
-static void
 visornic_serverdown_complete(struct work_struct *work)
 {
-	/* DO NOTHING FOR NOW */
+	struct visornic_devdata *devdata;
+	struct net_device *netdev;
+	unsigned long flags;
+	int i = 0, count = 0;
+
+	devdata = container_of(work, struct visornic_devdata,
+			       serverdown_completion);
+	netdev = devdata->netdev;
+
+	/* Stop using datachan */
+	visor_thread_stop(&devdata->threadinfo);
+
+	/* Inform Linux that the link is down */
+	netif_carrier_off(netdev);
+	netif_stop_queue(netdev);
+
+	/* Free the skb for XMITs that haven't been serviced by the server
+	 * We shouldn't have to inform Linux about these IOs because they
+	 * are "lost in the ethernet"
+	 */
+	skb_queue_purge(&devdata->xmitbufhead);
+
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	/* free rcv buffers */
+	for (i = 0; i < devdata->num_rcv_bufs; i++) {
+		if (devdata->rcvbuf[i]) {
+			kfree_skb(devdata->rcvbuf[i]);
+			devdata->rcvbuf[i] = NULL;
+			count++;
+		}
+	}
+	atomic_set(&devdata->num_rcv_bufs_in_iovm, 0);
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	devdata->server_down = true;
+	devdata->server_change_state = false;
+	visorchipset_device_pause_response(devdata->dev->chipset_bus_no,
+					   devdata->dev->chipset_dev_no, 0);
+}
+
+static int
+visornic_serverdown(struct visornic_devdata *devdata, u32 state)
+{
+	struct net_device *netdev = devdata->netdev;
+
+	if (!devdata->server_down && !devdata->server_change_state) {
+		devdata->server_change_state = true;
+		queue_work(visornic_serverdown_workqueue,
+			   &devdata->serverdown_completion);
+	} else if (devdata->server_change_state) {
+		return -1;
+	}
+	return 0;
 }
 
 /** List of all visornic_devdata structs,
@@ -442,6 +488,84 @@ send_enbdis(struct net_device *netdev, int state,
 				  IOCHAN_TO_IOPART,
 				  devdata->cmdrsp_rcv);
 	devdata->chstat.sent_enbdis++;
+}
+
+static int
+visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
+{
+	struct visornic_devdata *devdata = netdev_priv(netdev);
+	int i;
+	unsigned long flags;
+	int wait = 0;
+
+	/* stop the transmit queue so nothing more can be transmitted */
+	netif_stop_queue(netdev);
+
+	/* send a msg telling the other end we are stopping incoming pkts */
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	devdata->enabled = 0;
+	devdata->enab_dis_acked = 0; /* must wait for ack */
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	/* send disable and wait for ack -- don't hold lock when sending
+	 * disable because if the queue is full, insert might sleep.
+	 */
+	send_enbdis(netdev, 0, devdata);
+
+	/* wait for ack to arrive before we try to free rcv buffers
+	 * NOTE: the other end automatically unposts the rcv buffers when
+	 * when it gets a disable.
+	 */
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
+	       (wait < timeout)) {
+		if (devdata->n_rcv_packet_not_accepted)
+			break;
+		if (devdata->server_down || devdata->server_change_state) {
+			spin_unlock_irqrestore(&devdata->priv_lock, flags);
+			return -1;
+		}
+		set_current_state(TASK_INTERRUPTIBLE);
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		wait += schedule_timeout(msecs_to_jiffies(10));
+		spin_lock_irqsave(&devdata->priv_lock, flags);
+	}
+	/*
+	 * Wait for usage to go to 1 (no other users) before freeing
+	 * rcv buffers
+	 */
+	if (atomic_read(&devdata->usage) > 1) {
+		while (1) {
+			set_current_state(TASK_INTERRUPTIBLE);
+			spin_unlock_irqrestore(&devdata->priv_lock, flags);
+			schedule_timeout(msecs_to_jiffies(10));
+			spin_lock_irqsave(&devdata->priv_lock, flags);
+			if (atomic_read(&devdata->usage))
+				break;
+		}
+	}
+	/* we've set enabled to 0, so we can give up the lock. */
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	/*
+	 * Free rcv buffers - other end has automatically unposed them on
+	 * disable
+	 */
+	for (i = 0; i < devdata->num_rcv_bufs; i++) {
+		if (devdata->rcvbuf[i]) {
+			kfree_skb(devdata->rcvbuf[i]);
+			devdata->rcvbuf[i] = NULL;
+		}
+	}
+
+	/* remove references from array */
+	for (i = 0; i < VISORNICSOPENMAX; i++)
+		if (num_visornic_open[i] == netdev) {
+			num_visornic_open[i] = NULL;
+			break;
+		}
+
+	return 0;
 }
 
 static int
@@ -549,6 +673,36 @@ visornic_enable_with_timeout(struct net_device *netdev, const int timeout)
 	return 0;
 }
 
+static void
+visornic_timeout_reset(struct work_struct *work)
+{
+	struct visornic_devdata *devdata;
+	struct net_device *netdev;
+	int response = 0;
+
+	devdata = container_of(work, struct visornic_devdata, timeout_reset);
+	netdev = devdata->netdev;
+
+	/* Transmit Timeouts are typically handled by resetting the
+	 * device for our virtual NIC we will send a Disable and Enable
+	 * to the IOVM. If it doesn't respond we will trigger a serverdown.
+	 */
+	netif_stop_queue(netdev);
+	response = visornic_disable_with_timeout(netdev, 100);
+	if (response)
+		goto call_serverdown;
+
+	response = visornic_enable_with_timeout(netdev, 100);
+	if (response)
+		goto call_serverdown;
+	netif_wake_queue(netdev);
+
+	return;
+
+call_serverdown:
+	visornic_serverdown(devdata, 0);
+}
+
 static int
 visornic_open(struct net_device *netdev)
 {
@@ -558,84 +712,6 @@ visornic_open(struct net_device *netdev)
 	 * packets for transmission
 	 */
 	netif_start_queue(netdev);
-
-	return 0;
-}
-
-static int
-visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
-{
-	struct visornic_devdata *devdata = netdev_priv(netdev);
-	int i;
-	unsigned long flags;
-	int wait = 0;
-
-	/* stop the transmit queue so nothing more can be transmitted */
-	netif_stop_queue(netdev);
-
-	/* send a msg telling the other end we are stopping incoming pkts */
-	spin_lock_irqsave(&devdata->priv_lock, flags);
-	devdata->enabled = 0;
-	devdata->enab_dis_acked = 0; /* must wait for ack */
-	spin_unlock_irqrestore(&devdata->priv_lock, flags);
-
-	/* send disable and wait for ack -- don't hold lock when sending
-	 * disable because if the queue is full, insert might sleep.
-	 */
-	send_enbdis(netdev, 0, devdata);
-
-	/* wait for ack to arrive before we try to free rcv buffers
-	 * NOTE: the other end automatically unposts the rcv buffers when
-	 * when it gets a disable.
-	 */
-	spin_lock_irqsave(&devdata->priv_lock, flags);
-	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
-	       (wait < timeout)) {
-		if (devdata->n_rcv_packet_not_accepted)
-			break;
-		if (devdata->server_down || devdata->server_change_state) {
-			spin_unlock_irqrestore(&devdata->priv_lock, flags);
-			return -1;
-		}
-		set_current_state(TASK_INTERRUPTIBLE);
-		spin_unlock_irqrestore(&devdata->priv_lock, flags);
-		wait += schedule_timeout(msecs_to_jiffies(10));
-		spin_lock_irqsave(&devdata->priv_lock, flags);
-	}
-	/*
-	 * Wait for usage to go to 1 (no other users) before freeing
-	 * rcv buffers
-	 */
-	if (atomic_read(&devdata->usage) > 1) {
-		while (1) {
-			set_current_state(TASK_INTERRUPTIBLE);
-			spin_unlock_irqrestore(&devdata->priv_lock, flags);
-			schedule_timeout(msecs_to_jiffies(10));
-			spin_lock_irqsave(&devdata->priv_lock, flags);
-			if (atomic_read(&devdata->usage))
-				break;
-		}
-	}
-	/* we've set enabled to 0, so we can give up the lock. */
-	spin_unlock_irqrestore(&devdata->priv_lock, flags);
-
-	/*
-	 * Free rcv buffers - other end has automatically unposed them on
-	 * disable
-	 */
-	for (i = 0; i < devdata->num_rcv_bufs; i++) {
-		if (devdata->rcvbuf[i]) {
-			kfree_skb(devdata->rcvbuf[i]);
-			devdata->rcvbuf[i] = NULL;
-		}
-	}
-
-	/* remove references from array */
-	for (i = 0; i < VISORNICSOPENMAX; i++)
-		if (num_visornic_open[i] == netdev) {
-			num_visornic_open[i] = NULL;
-			break;
-		}
 
 	return 0;
 }
@@ -835,6 +911,34 @@ static int
 visornic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 {
 	return -EOPNOTSUPP;
+}
+
+static int
+visornic_change_mtu(struct net_device *netdev, int new_mtu)
+{
+	/* we cannot willy-nilly change the MTU, it has to come from
+	 * CONTROLVM and all the vnics and pnics in a switch have to have
+	 * the same MTU for everything to work.
+	 */
+	return -EINVAL;
+}
+
+static void
+visornic_xmit_timeout(struct net_device *netdev)
+{
+	struct visornic_devdata *devdata = netdev_priv(netdev);
+	unsigned long flags;
+
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+	/* Ensure that a ServerDown message hasn't been received */
+	if (!devdata->enabled ||
+	    (devdata->server_down && !devdata->server_change_state)) {
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		return;
+	}
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	queue_work(visornic_timeout_reset_workqueue, &devdata->timeout_reset);
 }
 
 static inline int
@@ -1257,9 +1361,9 @@ static const struct net_device_ops visornic_dev_ops = {
 	.ndo_stop = visornic_close,
 	.ndo_start_xmit = visornic_xmit,
 	.ndo_get_stats = visornic_get_stats,
-	.ndo_do_ioctl = visornic_ioctl, /*
+	.ndo_do_ioctl = visornic_ioctl,
 	.ndo_change_mtu = visornic_change_mtu,
-	.ndo_tx_timeout = visornic_xmit_timeout,
+	.ndo_tx_timeout = visornic_xmit_timeout, /*
 	.ndo_set_rx_mode = visornic_set_multi, */
 };
 
