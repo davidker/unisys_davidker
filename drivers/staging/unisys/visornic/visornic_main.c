@@ -35,6 +35,7 @@
 #include <linux/debugfs.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/skbuff.h>
 
 #define VISORNIC_STATS 0
 #define VISORNIC_XMIT_TIMEOUT (5 * HZ)
@@ -184,12 +185,18 @@ struct visornic_devdata {
 	int lower_threshold_net_xmits;	 /* high water mark for calling
 					    netif_wake_queue() */
 	struct sk_buff_head xmitbufhead; /* xmitbufhead is the head of the
-					    xmit buffer list that have been
-					    sent to the IOPART end */
+					  * xmit buffer list that have been
+					  * sent to the IOPART end
+					  */
 	struct work_struct serverdown_completion;
 	struct work_struct timeout_reset;
 	struct uiscmdrsp *cmdrsp_rcv;	 /* cmdrsp_rcv is used for
-					    posting/unposting rcv buffers */
+					  * posting/unposting rcv buffers
+					  */
+	struct uiscmdrsp *xmit_cmdrsp;	 /* used to issue NET_XMIT - there is
+					  * never more that one xmit in
+					  * progress at a time
+					  */
 	bool server_down;		 /* IOPART is down */
 	bool server_change_state;	 /* Processing SERVER_CHANGESTATE msg */
 	struct dentry *eth_debugfs_dir;
@@ -219,12 +226,96 @@ struct visornic_devdata {
 					   where it came from */
 	ulong n_rcv_packet_not_accepted;/* # bogs rcv packets */
 
+	int queuefullmsg_logged;
 	struct chanstat chstat;
 };
 
 #define VISORNICSOPENMAX 32
 /* array of open devices maintained by open() and close() */
 static struct net_device *num_visornic_open[VISORNICSOPENMAX];
+
+/*
+ * unsigned int visor_copy_fragsinfo_from_skb(unsigned char *calling_ctx,
+ *					      void *skb_in,
+ *					      unsigned int firstfraglen,
+ *					      unsigned int frags_max,
+ *					      struct phys_info frags[])
+ *
+ *	calling_ctx - input -	a string that is displayed to show
+ *				who calld this func
+ *	void *skb_in - skb whose frag info we're copying type is hidden so we
+ *		       don't need to include skbfuff in uisutils.h which is
+ *		       included in non-networking code.
+ *	unsigned int firstfraglen - input - length of first fragment in skb
+ *	unsigned int frags_max - input - max len of frags array
+ *	struct phys_info frags[] - output - frags array filled in on output
+ *					    return value indicates number of
+ *					    entries filled in frags
+ */
+unsigned int
+visor_copy_fragsinfo_from_skb(unsigned char *calling_ctx, struct sk_buff *skb,
+			      unsigned int firstfraglen, unsigned int frags_max,
+			      struct phys_info frags[])
+{
+	unsigned int count = 0, ii, size, offset = 0, numfrags;
+
+	numfrags = skb_shinfo(skb)->nr_frags;
+
+	while (firstfraglen) {
+		if (count == frags_max)
+			return -1;
+
+		frags[count].pi_pfn =
+			page_to_pfn(virt_to_page(skb->data + offset));
+		frags[count].pi_off =
+			(unsigned long)(skb->data + offset) & PI_PAGE_MASK;
+		size = min(firstfraglen,
+			   (unsigned int)(PI_PAGE_SIZE - frags[count].pi_off));
+
+		/* can take smallest of firstfraglen (what's left) OR
+		 * bytes left in the page
+		 */
+		frags[count].pi_len = size;
+		firstfraglen -= size;
+		offset += size;
+		count++;
+	}
+	if (!numfrags)
+		goto dolist;
+
+	if ((count + numfrags) > frags_max)
+		return -1;
+
+	for (ii = 0; ii < numfrags; ii++) {
+		count = add_physinfo_entries(page_to_pfn(
+				skb_frag_page(&skb_shinfo(skb)->frags[ii])),
+					      skb_shinfo(skb)->frags[ii].
+					      page_offset,
+					      skb_shinfo(skb)->frags[ii].
+					      size, count, frags_max, frags);
+		if (!count)
+			return -1;
+	}
+
+dolist: if (skb_shinfo(skb)->frag_list) {
+		struct sk_buff *skbinlist;
+		int c;
+
+		for (skbinlist = skb_shinfo(skb)->frag_list; skbinlist;
+		     skbinlist = skbinlist->next) {
+			c = visor_copy_fragsinfo_from_skb("recursive",
+							  skbinlist,
+							  skbinlist->len -
+							  skbinlist->data_len,
+							  frags_max - count,
+							  &frags[count]);
+			if (c == -1)
+				return -1;
+			count += c;
+		}
+	}
+	return count;
+}
 
 int visor_thread_start(struct visor_thread_info *thrinfo,
 		       int (*threadfn)(void *),
@@ -488,7 +579,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	devdata->enab_dis_acked = 0; /* must wait for ack */
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
-	/* send disable and wait for ack -- don't hold lock when sending 
+	/* send disable and wait for ack -- don't hold lock when sending
 	 * disable because if the queue is full, insert might sleep.
 	 */
 	send_enbdis(netdev, 0, devdata);
@@ -500,7 +591,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	spin_lock_irqsave(&devdata->priv_lock, flags);
 	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
 	       (wait < timeout)) {
-		if (devdata->n_rcv_packet_not_accepted)	
+		if (devdata->n_rcv_packet_not_accepted)
 			break;
 		if (devdata->server_down || devdata->server_change_state) {
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -511,7 +602,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 		wait += schedule_timeout(msecs_to_jiffies(10));
 		spin_lock_irqsave(&devdata->priv_lock, flags);
 	}
-	/* 
+	/*
 	 * Wait for usage to go to 1 (no other users) before freeing
 	 * rcv buffers
 	 */
@@ -527,20 +618,20 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	}
 	/* we've set enabled to 0, so we can give up the lock. */
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
-	
-	/* 
-	 * Free rcv buffers - other end has automatically unposed them on 
+
+	/*
+	 * Free rcv buffers - other end has automatically unposed them on
 	 * disable
 	 */
-	for (i =0; i < devdata->num_rcv_bufs; i++) {
+	for (i = 0; i < devdata->num_rcv_bufs; i++) {
 		if (devdata->rcvbuf[i]) {
 			kfree_skb(devdata->rcvbuf[i]);
 			devdata->rcvbuf[i] = NULL;
 		}
 	}
-	
+
 	/* remove references from array */
-	for (i = 0; i < VISORNICSOPENMAX; i++) 
+	for (i = 0; i < VISORNICSOPENMAX; i++)
 		if (num_visornic_open[i] == netdev) {
 			num_visornic_open[i] = NULL;
 			break;
@@ -554,8 +645,182 @@ visornic_close(struct net_device *netdev)
 {
 	netif_stop_queue(netdev);
 	visornic_disable_with_timeout(netdev, VISORNIC_INFINITE_RESPONSE_WAIT);
-	
+
 	return 0;
+}
+
+/* This function is protected from concurrent calls by a spinlock xmit_lock
+ * in the net_device struct, but as soon as the function returns it can be
+ * called again.
+ */
+static int
+visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
+{
+	struct visornic_devdata *devdata;
+	int len, firstfraglen, padlen;
+	struct uiscmdrsp *cmdrsp = NULL;
+	unsigned long flags;
+
+	devdata = netdev_priv(netdev);
+	spin_lock_irqsave(&devdata->priv_lock, flags);
+
+	if (netif_queue_stopped(netdev) || devdata->server_down ||
+	    devdata->server_change_state) {
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		devdata->busy_cnt++;
+		return NETDEV_TX_BUSY;
+	}
+
+	/* sk_buff struct is used to host network data throughout all the
+	 * linux network subsystems
+	 */
+	len = skb->len;
+	/*
+	 * skb->len is the FULL length of data (including fragmentary portion)
+	 * skb->data_len is the length of the fragment portion in frags
+	 * skb->len - skb->data_len is size of the 1st fragment in skb->data
+	 * calculate the length of the first fragment that skb->data is
+	 * pointing to
+	 */
+	firstfraglen = skb->len - skb->data_len;
+	if (firstfraglen < ETH_HEADER_SIZE) {
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		devdata->busy_cnt++;
+		return NETDEV_TX_BUSY;
+	}
+
+	if ((len < ETH_MIN_PACKET_SIZE) &&
+	    ((skb_end_pointer(skb) - skb->data) >= ETH_MIN_PACKET_SIZE)) {
+		/* pad the packet out to minimum size */
+		padlen = ETH_MIN_PACKET_SIZE - len;
+		memset(&skb->data[len], 0, padlen);
+		skb->tail += padlen;
+		skb->len += padlen;
+		len += padlen;
+		firstfraglen += padlen;
+	}
+
+	cmdrsp = devdata->xmit_cmdrsp;
+	/* clear cmdrsp */
+	memset(cmdrsp, 0, SIZEOF_CMDRSP);
+	cmdrsp->net.type = NET_XMIT;
+	cmdrsp->cmdtype = CMD_NET_TYPE;
+
+	/* save the pointer to skb -- we'll need it for completion */
+	cmdrsp->net.buf = skb;
+
+	if (((devdata->chstat.sent_xmit >= devdata->chstat.got_xmit_done) &&
+	     (devdata->chstat.sent_xmit - devdata->chstat.got_xmit_done >=
+	     devdata->max_outstanding_net_xmits)) ||
+	     ((devdata->chstat.sent_xmit < devdata->chstat.got_xmit_done) &&
+	     (ULONG_MAX - devdata->chstat.got_xmit_done +
+	      devdata->chstat.sent_xmit >=
+	      devdata->max_outstanding_net_xmits))) {
+		/*
+		 * too many NET_XMITs queued over to IOVM - need to wait
+		 */
+		devdata->chstat.reject_count++;
+		if (!devdata->queuefullmsg_logged &&
+		    ((devdata->chstat.reject_count & 0x3ff) == 1)) {
+			devdata->queuefullmsg_logged = 1;
+			LOGINFNAME(devdata->netdev, "**** REJECTING NEX_XMIT - rejected count=%ld chstat.sent_xmit=%lu chstat.got_xmit_done=%lu\n",
+				   devdata->chstat.reject_count,
+				   devdata->chstat.sent_xmit,
+				   devdata->chstat.got_xmit_done);
+		}
+		netif_stop_queue(netdev);
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		devdata->busy_cnt++;
+		return NETDEV_TX_BUSY;
+	}
+	if (devdata->queuefullmsg_logged)
+		devdata->queuefullmsg_logged = 0;
+
+	if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
+		cmdrsp->net.xmt.lincsum.valid = 1;
+		cmdrsp->net.xmt.lincsum.protocol = skb->protocol;
+		if (skb_transport_header(skb) > skb->data) {
+			cmdrsp->net.xmt.lincsum.hrawoff =
+				skb_transport_header(skb) - skb->data;
+			cmdrsp->net.xmt.lincsum.hrawoff = 1;
+		}
+		if (skb_network_header(skb) > skb->data) {
+			cmdrsp->net.xmt.lincsum.nhrawoff =
+				skb_network_header(skb) - skb->data;
+			cmdrsp->net.xmt.lincsum.nhrawoffv = 1;
+		}
+		cmdrsp->net.xmt.lincsum.csum = skb->csum;
+	} else {
+		cmdrsp->net.xmt.lincsum.valid = 0;
+	}
+
+	/* save off the length of the entire data packet */
+	cmdrsp->net.xmt.len = len;
+
+	/*
+	 * copy ethernet header from first frag into ocmdrsp
+	 * - everything else will be pass in frags & DMA'ed
+	 */
+	memcpy(cmdrsp->net.xmt.ethhdr, skb->data, ETH_HEADER_SIZE);
+	/*
+	 * copy frags info - from skb->data we need to only provide access
+	 * beyond eth header
+	 */
+	cmdrsp->net.xmt.num_frags =
+		visor_copy_fragsinfo_from_skb("visornic_xmit", skb,
+					      firstfraglen, MAX_PHYS_INFO,
+					      cmdrsp->net.xmt.frags);
+	if (cmdrsp->net.xmt.num_frags == -1) {
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		devdata->busy_cnt++;
+		return NETDEV_TX_BUSY;
+	}
+
+	if (!visorchannel_signalinsert(devdata->dev->visorchannel,
+				       IOCHAN_TO_IOPART, cmdrsp)) {
+		netif_stop_queue(netdev);
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+		devdata->busy_cnt++;
+		return NETDEV_TX_BUSY;
+	}
+
+	/* Track the skbs that have been sent to the IOVM for XMIT */
+	skb_queue_head(&devdata->xmitbufhead, skb);
+
+	/*
+	 * set the last transmission start time
+	 * linux doc says: Do not forget to update netdev->trans_start to
+	 * jiffies after each new tx packet is given to the hardware.
+	 */
+	netdev->trans_start = jiffies;
+
+	/* update xmt stats */
+	devdata->net_stats.tx_packets++;
+	devdata->net_stats.tx_bytes += skb->len;
+	devdata->chstat.sent_xmit++;
+
+	/*
+	 * check to see if we have hit the high watermark for
+	 * netif_stop_queue()
+	 */
+	if (((devdata->chstat.sent_xmit >= devdata->chstat.got_xmit_done) &&
+	     (devdata->chstat.sent_xmit - devdata->chstat.got_xmit_done >=
+	      devdata->upper_threshold_net_xmits)) ||
+	    ((devdata->chstat.sent_xmit < devdata->chstat.got_xmit_done) &&
+	     (ULONG_MAX - devdata->chstat.got_xmit_done +
+	      devdata->chstat.sent_xmit >=
+	      devdata->upper_threshold_net_xmits))) {
+		/* too many NET_XMITs queued over to IOVM - need to wait */
+		netif_stop_queue(netdev); /* calling stop queue - call
+					   * netif_wake_queue() after lower
+					   * threshold
+					   */
+		devdata->flow_control_upper_hits++;
+	}
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+	/* skb will be freed when we get back NET_XMIT_DONE */
+	return NETDEV_TX_OK;
 }
 
 static inline int
@@ -662,7 +927,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	if (!netdev) {
 		/* We must have previously downed this network device and
 		 * this skb and device is no longer valid. This also means
-		 * the skb reference was removed from virtnic->rcvbuf so no
+		 * the skb reference was removed from devdata->rcvbuf so no
 		 * need to search for it.
 		 * All we can do is free the skb and return.
 		 * Note: We crash if we try to log this here.
@@ -974,9 +1239,9 @@ visornic_ISR(int irq, void *dev_id)
 }
 
 static const struct net_device_ops visornic_dev_ops = {
-	.ndo_open = visornic_open, 
-	.ndo_stop = visornic_close, /*
-	.ndo_start_xmit = visornic_xmit,
+	.ndo_open = visornic_open,
+	.ndo_stop = visornic_close,
+	.ndo_start_xmit = visornic_xmit, /*
 	.ndo_get_stats = visornic_get_stats,
 	.ndo_do_ioctl = visornic_ioctl,
 	.ndo_change_mtu = visornic_change_mtu,
@@ -1037,7 +1302,6 @@ static void
 drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 {
 	unsigned long flags;
-	int qrslt;
 	struct net_device *netdev;
 
 	/* drain queue */
