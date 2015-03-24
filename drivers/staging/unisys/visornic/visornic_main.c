@@ -42,6 +42,11 @@
 #define VISORNIC_INFINITE_RESPONSE_WAIT 0
 #define INTERRUPT_VECTOR_MASK 0x3F
 
+/* MAX_BUF = 64 lines x 32 MAXVNIC x 80 characters
+ *         = 163840 bytes ~ 40 pages
+ */
+#define MAX_BUF 163840
+
 static spinlock_t dev_no_pool_lock;
 static void *dev_no_pool;	/**< pool to grab device numbers from */
 
@@ -51,8 +56,8 @@ static int visornic_pause(struct visor_device *dev,
 			  VISORBUS_STATE_COMPLETE_FUNC complete_func);
 static int visornic_resume(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func);
-/** DEBUGFS declarations
- */
+
+/* DEBUGFS declarations */
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
 				 size_t len, loff_t *offset);
 static ssize_t enable_ints_write(struct file *file, const char __user *buf,
@@ -69,20 +74,19 @@ static const struct file_operations debugfs_enable_ints_fops = {
 static struct workqueue_struct *visornic_serverdown_workqueue;
 static struct workqueue_struct *visornic_timeout_reset_workqueue;
 
-/**  GUIDS for director channel type supported by this driver.
-*/
+/* GUIDS for director channel type supported by this driver.  */
 static struct visor_channeltype_descriptor visornic_channel_types[] = {
-	/*  Note that the only channel type we expect to be reported by the
-	 *  bus driver is the ULTRAVNIC channel.
+	/* Note that the only channel type we expect to be reported by the
+	 * bus driver is the ULTRAVNIC channel.
 	 */
 	{ SPAR_VNIC_CHANNEL_PROTOCOL_UUID,
 	  "ultravnic", 1, ULONG_MAX },
 	{ NULL_UUID_LE, NULL, 0, 0 }
 };
 
-/** This is used to tell the visor bus driver which types of visor devices
- *  we support, and what functions to call when a visor device that we support
- *  is attached or removed.
+/* This is used to tell the visor bus driver which types of visor devices
+ * we support, and what functions to call when a visor device that we support
+ * is attached or removed.
  */
 static struct visor_driver visornic_driver = {
 	.name = MYDRVNAME,
@@ -97,9 +101,9 @@ static struct visor_driver visornic_driver = {
 	.channel_interrupt = NULL,
 };
 
-/** This is the private data that we store for each device.
- *  A pointer to this struct is kept in each "struct device", and can be
- *  obtained using visor_get_drvdata(dev).
+/* This is the private data that we store for each device.
+ * A pointer to this struct is kept in each "struct device", and can be
+ * obtained using visor_get_drvdata(dev).
  */
 /*
 struct uisqueue_info {
@@ -160,10 +164,10 @@ struct visornic_devdata {
 					 */
 	struct visor_device *dev;
 	struct visorchipset_device_info *dev_chipset; /* IRQ Information */
-	/** lock for dev */
+	/* lock for dev */
 	struct rw_semaphore lock_visor_dev;
 	char name[99];
-	struct list_head list_all;   /**< link within list_all_devices list */
+	struct list_head list_all;   /* < link within list_all_devices list */
 	struct kref kref;
 	struct net_device *netdev;
 	struct net_device_stats net_stats;
@@ -179,9 +183,9 @@ struct visornic_devdata {
 					 * the vnic will post
 					 */
 	int num_rcv_bufs_could_not_alloc;
-	atomic_t num_rcv_bufs_in_iovm;
+	atomic_t num_rcvbuf_in_iovm;
 	unsigned long alloc_failed_in_if_needed_cnt;
-	unsigned long alloc_failed_in_repost_return_cnt;
+	unsigned long alloc_failed_in_repost_rtn_cnt;
 	int max_outstanding_net_xmits;   /* absolute max number of outstanding
 					  * xmits - should never hit this */
 	int upper_threshold_net_xmits;   /* high water mark for calling
@@ -228,7 +232,7 @@ struct visornic_devdata {
 	ulong bad_rcv_buf;		/* # times we negleted to free the
 					   rcv skb because we didn't know
 					   where it came from */
-	ulong n_rcv_packet_not_accepted;/* # bogs rcv packets */
+	ulong n_rcv_packets_not_accepted;/* # bogs rcv packets */
 
 	int queuefullmsg_logged;
 	struct chanstat chstat;
@@ -238,8 +242,7 @@ struct visornic_devdata {
 /* array of open devices maintained by open() and close() */
 static struct net_device *num_visornic_open[VISORNICSOPENMAX];
 
-/*
- * unsigned int visor_copy_fragsinfo_from_skb(unsigned char *calling_ctx,
+/* unsigned int visor_copy_fragsinfo_from_skb(unsigned char *calling_ctx,
  *					      void *skb_in,
  *					      unsigned int firstfraglen,
  *					      unsigned int frags_max,
@@ -352,8 +355,149 @@ void visor_thread_stop(struct visor_thread_info *thrinfo)
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
 				 size_t len, loff_t *offset)
 {
-	/* DO NOTHING FOR NOW */
-	return len;
+	int i;
+	ssize_t bytes_read = 0;
+	int str_pos = 0;
+	struct visornic_devdata *devdata;
+	char *vbuf;
+
+	if (len > MAX_BUF)
+		len = MAX_BUF;
+	vbuf = kzalloc(len, GFP_KERNEL);
+	if (!vbuf)
+		return -ENOMEM;
+
+	/* for each vnic channel
+	 * dump out channel specific data
+	 */
+	for (i = 0; i < VISORNICSOPENMAX; i++) {
+		if (!num_visornic_open[i])
+			continue;
+
+		devdata = netdev_priv(num_visornic_open[i]);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     "Vnic i = %d\n", i);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     "netdev = %s (0x%p), MAC Addr %pM\n",
+				     num_visornic_open[i]->name,
+				     num_visornic_open[i],
+				     num_visornic_open[i]->dev_addr);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     "VisorNic Dev Info = 0x%p\n", devdata);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " num_rcv_bufs = %d\n",
+				     devdata->num_rcv_bufs);
+		/* str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+		 *			" features = 0x%015llX\n",
+		 *     visorchannel_read(devdata->dev->visorchannel
+		 */
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " max_oustanding_next_xmits = %d\n",
+				    devdata->max_outstanding_net_xmits);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " upper_threshold_net_xmits = %d\n",
+				     devdata->upper_threshold_net_xmits);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " lower_threshold_net_xmits = %d\n",
+				     devdata->lower_threshold_net_xmits);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " queuefullmsg_logged = %d\n",
+				     devdata->queuefullmsg_logged);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.got_rcv = %lu\n",
+				     devdata->chstat.got_rcv);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.got_enbdisack = %lu\n",
+				     devdata->chstat.got_enbdisack);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.got_xmit_done = %lu\n",
+				     devdata->chstat.got_xmit_done);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.xmit_fail = %lu\n",
+				     devdata->chstat.xmit_fail);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.sent_enbdis = %lu\n",
+				     devdata->chstat.sent_enbdis);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.sent_promisc = %lu\n",
+				     devdata->chstat.sent_promisc);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.sent_post = %lu\n",
+				     devdata->chstat.sent_post);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.sent_xmit = %lu\n",
+				     devdata->chstat.sent_xmit);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.reject_count = %lu\n",
+				     devdata->chstat.reject_count);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " chstat.extra_rcvbufs_sent = %lu\n",
+				     devdata->chstat.extra_rcvbufs_sent);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " n_rcv0 = %lu\n", devdata->n_rcv0);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " n_rcv1 = %lu\n", devdata->n_rcv1);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " n_rcv2 = %lu\n", devdata->n_rcv2);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " n_rcvx = %lu\n", devdata->n_rcvx);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " num_rcvbuf_in_iovm = %d\n",
+				     atomic_read(&devdata->num_rcvbuf_in_iovm));
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " alloc_failed_in_if_needed_cnt = %lu\n",
+				     devdata->alloc_failed_in_if_needed_cnt);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " alloc_failed_in_repost_rtn_cnt = %lu\n",
+				     devdata->alloc_failed_in_repost_rtn_cnt);
+		/* str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+		 *		     " inner_loop_limit_reached_cnt = %lu\n",
+		 *		     devdata->inner_loop_limit_reached_cnt);
+		 */
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " found_repost_rcvbuf_cnt = %lu\n",
+				     devdata->found_repost_rcvbuf_cnt);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " repost_found_skb_cnt = %lu\n",
+				     devdata->repost_found_skb_cnt);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " n_repost_deficit = %lu\n",
+				     devdata->n_repost_deficit);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " bad_rcv_buf = %lu\n",
+				     devdata->bad_rcv_buf);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " n_rcv_packets_not_accepted = %lu\n",
+				     devdata->n_rcv_packets_not_accepted);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " interrupts_rcvd = %llu\n",
+				     devdata->interrupts_rcvd);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " interrupts_notme = %llu\n",
+				     devdata->interrupts_notme);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " interrupts_disabled = %llu\n",
+				     devdata->interrupts_disabled);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " busy_cnt = %llu\n",
+				     devdata->busy_cnt);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " flow_control_upper_hits = %llu\n",
+				     devdata->flow_control_upper_hits);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " flow_control_lower_hits = %llu\n",
+				     devdata->flow_control_lower_hits);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " thread_wait_ms = %d\n",
+				     devdata->thread_wait_ms);
+		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
+				     " netif_queue = %s\n",
+				     netif_queue_stopped(devdata->netdev) ?
+				     "stopped" : "running");
+	}
+	bytes_read = simple_read_from_buffer(buf, len, offset, vbuf, str_pos);
+	kfree(vbuf);
+	return bytes_read;
 }
 
 static ssize_t enable_ints_write(struct file *file, const char __user *buf,
@@ -397,7 +541,7 @@ visornic_serverdown_complete(struct work_struct *work)
 			count++;
 		}
 	}
-	atomic_set(&devdata->num_rcv_bufs_in_iovm, 0);
+	atomic_set(&devdata->num_rcvbuf_in_iovm, 0);
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
 	devdata->server_down = true;
@@ -475,7 +619,7 @@ post_skb(struct uiscmdrsp *cmdrsp,
 		visorchannel_signalinsert(devdata->dev->visorchannel,
 					  IOCHAN_TO_IOPART,
 					  cmdrsp);
-		atomic_inc(&devdata->num_rcv_bufs_in_iovm);
+		atomic_inc(&devdata->num_rcvbuf_in_iovm);
 		devdata->chstat.sent_post++;
 	}
 }
@@ -523,7 +667,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	spin_lock_irqsave(&devdata->priv_lock, flags);
 	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
 	       (wait < timeout)) {
-		if (devdata->n_rcv_packet_not_accepted)
+		if (devdata->n_rcv_packets_not_accepted)
 			break;
 		if (devdata->server_down || devdata->server_change_state) {
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -636,7 +780,7 @@ visornic_enable_with_timeout(struct net_device *netdev, const int timeout)
 	/* now we're ready, let's send an ENB to uisnic but until we get
 	 * an ACK back from uisnic, we'll drop the packets
 	 */
-	devdata->n_rcv_packet_not_accepted = 0;
+	devdata->n_rcv_packets_not_accepted = 0;
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
 	/* send enable and wait for ack -- don't hold lock when sending enable
@@ -1018,7 +1162,7 @@ repost_return(
 				LOGVER("**** %s FAILED to reallocate new rcv buf - no REPOST, found_skb=%d, cc=%d, i=%d\n",
 				       netdev->name, found_skb, cc, i);
 				devdata->num_rcv_bufs_could_not_alloc++;
-				devdata->alloc_failed_in_repost_return_cnt++;
+				devdata->alloc_failed_in_repost_rtn_cnt++;
 				status = -1;
 				break;
 			}
@@ -1088,7 +1232,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	devdata = netdev_priv(netdev);
 
 	spin_lock_irqsave(&devdata->priv_lock, flags);
-	atomic_dec(&devdata->num_rcv_bufs_in_iovm);
+	atomic_dec(&devdata->num_rcvbuf_in_iovm);
 
 	/* update rcv stats - call it with priv_lock held */
 	devdata->net_stats.rx_packets++;
@@ -1305,7 +1449,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		/* drop packet - don't forward it up to OS */
 		DBGINF("we cannot indicate this recv pkt! (netdev->flags:0x%04x, skb->pkt_type:0x%02x).\n",
 		       netdev->flags, skb->pkt_type);
-		devdata->n_rcv_packet_not_accepted++;
+		devdata->n_rcv_packets_not_accepted++;
 		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
 			LOGERRNAME(devdata->netdev, "repost_return failed");
 		return;
@@ -1428,9 +1572,7 @@ send_rcv_posts_if_needed(struct visornic_devdata *devdata)
 			}
 			rcv_bufs_allocated++;
 			post_skb(cmdrsp, devdata, devdata->rcvbuf[i]);
-			/* TODO:
-			 * Update datachan chanstat extra_rcvbufs_sent++
-			 */
+			devdata->chstat.extra_rcvbufs_sent++;
 		}
 	}
 	devdata->num_rcv_bufs_could_not_alloc -= rcv_bufs_allocated;
