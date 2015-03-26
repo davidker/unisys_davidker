@@ -57,7 +57,7 @@ module_param(libcfs_debug, int, 0644);
 MODULE_PARM_DESC(libcfs_debug, "Lustre kernel debug mask");
 EXPORT_SYMBOL(libcfs_debug);
 
-unsigned int libcfs_debug_mb = 0;
+static unsigned int libcfs_debug_mb;
 module_param(libcfs_debug_mb, uint, 0644);
 MODULE_PARM_DESC(libcfs_debug_mb, "Total debug buffer size.");
 EXPORT_SYMBOL(libcfs_debug_mb);
@@ -93,7 +93,7 @@ EXPORT_SYMBOL(libcfs_debug_binary);
 unsigned int libcfs_stack = 3 * THREAD_SIZE / 4;
 EXPORT_SYMBOL(libcfs_stack);
 
-unsigned int portal_enter_debugger;
+static unsigned int portal_enter_debugger;
 EXPORT_SYMBOL(portal_enter_debugger);
 
 unsigned int libcfs_catastrophe;
@@ -409,8 +409,8 @@ int libcfs_debug_init(unsigned long bufsize)
 	if (max > cfs_trace_max_debug_mb() || max < num_possible_cpus()) {
 		max = TCD_MAX_PAGES;
 	} else {
-		max = (max / num_possible_cpus());
-		max = max << (20 - PAGE_CACHE_SHIFT);
+		max = max / num_possible_cpus();
+		max <<= (20 - PAGE_CACHE_SHIFT);
 	}
 	rc = cfs_tracefile_init(max);
 

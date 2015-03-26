@@ -174,38 +174,18 @@ void visorbus_disable_channel_interrupts(struct visor_device *dev);
 #endif
 
 /* Reference counting interfaces */
-#define VISORBUS_DEBUG_REFCOUNT_CHANGE(old, new, p, why)                \
-	INFODRV("refcount:%d-->%d %p <<%s>>", old, new, p, why)
-
-#define VISORBUS_DEBUG_REFCOUNT(count, p, why)                         \
-	INFODRV("refcount:%d %p <<%s>>", count, p, why)
-
 #define get_visordev(/*struct visor_device **/dev, /* char * */why, DBG) \
-do {							     \
+{							     \
 	int refcount;						     \
 	get_device(&dev->device);				     \
 	refcount = atomic_read(&dev->device.kobj.kref.refcount);     \
-	if (DBG)				     \
-		VISORBUS_DEBUG_REFCOUNT_CHANGE			     \
-			(refcount-1, refcount, &dev->device, why);   \
-} while (0)
+}
 
 #define put_visordev(/*struct visor_device **/dev, /* char * */why, DBG) \
-do {							     \
+{							     \
 	int refcount;						     \
 	put_device(&dev->device);				     \
 	refcount = atomic_read(&dev->device.kobj.kref.refcount);     \
-	if (DBG)				     \
-		VISORBUS_DEBUG_REFCOUNT_CHANGE			     \
-			(refcount+1, refcount, &dev->device, why);   \
-} while (0)
-
-#define refcount_debug(/*struct visor_device **/dev, /* char * */why) \
-do {							       \
-	if (visorbus_debugref)				       \
-		VISORBUS_DEBUG_REFCOUNT				       \
-			(atomic_read(&dev->device.kobj.kref.refcount), \
-			 &dev->device, why);                           \
-} while (0)
+}
 
 #endif

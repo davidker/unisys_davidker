@@ -1,102 +1,95 @@
 /*
-   comedi/drivers/pcl818.c
-
-   Author:  Michal Dobes <dobes@tesnet.cz>
-
-   hardware driver for Advantech cards:
-    card:   PCL-818L, PCL-818H, PCL-818HD, PCL-818HG, PCL-818, PCL-718
-    driver: pcl818l,  pcl818h,  pcl818hd,  pcl818hg,  pcl818,  pcl718
-*/
-/*
-Driver: pcl818
-Description: Advantech PCL-818 cards, PCL-718
-Author: Michal Dobes <dobes@tesnet.cz>
-Devices: [Advantech] PCL-818L (pcl818l), PCL-818H (pcl818h),
-  PCL-818HD (pcl818hd), PCL-818HG (pcl818hg), PCL-818 (pcl818),
-  PCL-718 (pcl718)
-Status: works
-
-All cards have 16 SE/8 DIFF ADCs, one or two DACs, 16 DI and 16 DO.
-Differences are only at maximal sample speed, range list and FIFO
-support.
-The driver support AI mode 0, 1, 3 other subdevices (AO, DI, DO) support
-only mode 0. If DMA/FIFO/INT are disabled then AI support only mode 0.
-PCL-818HD and PCL-818HG support 1kword FIFO. Driver support this FIFO
-but this code is untested.
-A word or two about DMA. Driver support DMA operations at two ways:
-1) DMA uses two buffers and after one is filled then is generated
-   INT and DMA restart with second buffer. With this mode I'm unable run
-   more that 80Ksamples/secs without data dropouts on K6/233.
-2) DMA uses one buffer and run in autoinit mode and the data are
-   from DMA buffer moved on the fly with 2kHz interrupts from RTC.
-   This mode is used if the interrupt 8 is available for allocation.
-   If not, then first DMA mode is used. With this I can run at
-   full speed one card (100ksamples/secs) or two cards with
-   60ksamples/secs each (more is problem on account of ISA limitations).
-   To use this mode you must have compiled  kernel with disabled
-   "Enhanced Real Time Clock Support".
-   Maybe you can have problems if you use xntpd or similar.
-   If you've data dropouts with DMA mode 2 then:
-    a) disable IDE DMA
-    b) switch text mode console to fb.
-
-   Options for PCL-818L:
-    [0] - IO Base
-    [1] - IRQ	(0=disable, 2, 3, 4, 5, 6, 7)
-    [2] - DMA	(0=disable, 1, 3)
-    [3] - 0, 10=10MHz clock for 8254
-              1= 1MHz clock for 8254
-    [4] - 0,  5=A/D input  -5V.. +5V
-          1, 10=A/D input -10V..+10V
-    [5] - 0,  5=D/A output 0-5V  (internal reference -5V)
-          1, 10=D/A output 0-10V (internal reference -10V)
-	  2    =D/A output unknown (external reference)
-
-   Options for PCL-818, PCL-818H:
-    [0] - IO Base
-    [1] - IRQ	(0=disable, 2, 3, 4, 5, 6, 7)
-    [2] - DMA	(0=disable, 1, 3)
-    [3] - 0, 10=10MHz clock for 8254
-              1= 1MHz clock for 8254
-    [4] - 0,  5=D/A output 0-5V  (internal reference -5V)
-          1, 10=D/A output 0-10V (internal reference -10V)
-	  2    =D/A output unknown (external reference)
-
-   Options for PCL-818HD, PCL-818HG:
-    [0] - IO Base
-    [1] - IRQ	(0=disable, 2, 3, 4, 5, 6, 7)
-    [2] - DMA/FIFO  (-1=use FIFO, 0=disable both FIFO and DMA,
-                      1=use DMA ch 1, 3=use DMA ch 3)
-    [3] - 0, 10=10MHz clock for 8254
-              1= 1MHz clock for 8254
-    [4] - 0,  5=D/A output 0-5V  (internal reference -5V)
-          1, 10=D/A output 0-10V (internal reference -10V)
-   	  2    =D/A output unknown (external reference)
-
-   Options for PCL-718:
-    [0] - IO Base
-    [1] - IRQ	(0=disable, 2, 3, 4, 5, 6, 7)
-    [2] - DMA	(0=disable, 1, 3)
-    [3] - 0, 10=10MHz clock for 8254
-              1= 1MHz clock for 8254
-    [4] -     0=A/D Range is +/-10V
-	      1=             +/-5V
-	      2=             +/-2.5V
-	      3=             +/-1V
-	      4=             +/-0.5V
-	      5=  	     user defined bipolar
-	      6=	     0-10V
-	      7=	     0-5V
- 	      8=	     0-2V
-	      9=	     0-1V
-	     10=	     user defined unipolar
-    [5] - 0,  5=D/A outputs 0-5V  (internal reference -5V)
-          1, 10=D/A outputs 0-10V (internal reference -10V)
-	      2=D/A outputs unknown (external reference)
-    [6] - 0, 60=max  60kHz A/D sampling
-          1,100=max 100kHz A/D sampling (PCL-718 with Option 001 installed)
-
-*/
+ * comedi/drivers/pcl818.c
+ *
+ * Driver: pcl818
+ * Description: Advantech PCL-818 cards, PCL-718
+ * Author: Michal Dobes <dobes@tesnet.cz>
+ * Devices: [Advantech] PCL-818L (pcl818l), PCL-818H (pcl818h),
+ *   PCL-818HD (pcl818hd), PCL-818HG (pcl818hg), PCL-818 (pcl818),
+ *   PCL-718 (pcl718)
+ * Status: works
+ *
+ * All cards have 16 SE/8 DIFF ADCs, one or two DACs, 16 DI and 16 DO.
+ * Differences are only at maximal sample speed, range list and FIFO
+ * support.
+ * The driver support AI mode 0, 1, 3 other subdevices (AO, DI, DO) support
+ * only mode 0. If DMA/FIFO/INT are disabled then AI support only mode 0.
+ * PCL-818HD and PCL-818HG support 1kword FIFO. Driver support this FIFO
+ * but this code is untested.
+ * A word or two about DMA. Driver support DMA operations at two ways:
+ * 1) DMA uses two buffers and after one is filled then is generated
+ *    INT and DMA restart with second buffer. With this mode I'm unable run
+ *    more that 80Ksamples/secs without data dropouts on K6/233.
+ * 2) DMA uses one buffer and run in autoinit mode and the data are
+ *    from DMA buffer moved on the fly with 2kHz interrupts from RTC.
+ *    This mode is used if the interrupt 8 is available for allocation.
+ *    If not, then first DMA mode is used. With this I can run at
+ *    full speed one card (100ksamples/secs) or two cards with
+ *    60ksamples/secs each (more is problem on account of ISA limitations).
+ *    To use this mode you must have compiled  kernel with disabled
+ *    "Enhanced Real Time Clock Support".
+ *    Maybe you can have problems if you use xntpd or similar.
+ *    If you've data dropouts with DMA mode 2 then:
+ *     a) disable IDE DMA
+ *     b) switch text mode console to fb.
+ *
+ *  Options for PCL-818L:
+ *  [0] - IO Base
+ *  [1] - IRQ        (0=disable, 2, 3, 4, 5, 6, 7)
+ *  [2] - DMA        (0=disable, 1, 3)
+ *  [3] - 0, 10=10MHz clock for 8254
+ *            1= 1MHz clock for 8254
+ *  [4] - 0,  5=A/D input  -5V.. +5V
+ *        1, 10=A/D input -10V..+10V
+ *  [5] - 0,  5=D/A output 0-5V  (internal reference -5V)
+ *        1, 10=D/A output 0-10V (internal reference -10V)
+ *        2    =D/A output unknown (external reference)
+ *
+ *  Options for PCL-818, PCL-818H:
+ *  [0] - IO Base
+ *  [1] - IRQ        (0=disable, 2, 3, 4, 5, 6, 7)
+ *  [2] - DMA        (0=disable, 1, 3)
+ *  [3] - 0, 10=10MHz clock for 8254
+ *            1= 1MHz clock for 8254
+ *  [4] - 0,  5=D/A output 0-5V  (internal reference -5V)
+ *        1, 10=D/A output 0-10V (internal reference -10V)
+ *        2    =D/A output unknown (external reference)
+ *
+ *  Options for PCL-818HD, PCL-818HG:
+ *  [0] - IO Base
+ *  [1] - IRQ        (0=disable, 2, 3, 4, 5, 6, 7)
+ *  [2] - DMA/FIFO  (-1=use FIFO, 0=disable both FIFO and DMA,
+ *                    1=use DMA ch 1, 3=use DMA ch 3)
+ *  [3] - 0, 10=10MHz clock for 8254
+ *            1= 1MHz clock for 8254
+ *  [4] - 0,  5=D/A output 0-5V  (internal reference -5V)
+ *        1, 10=D/A output 0-10V (internal reference -10V)
+ *        2    =D/A output unknown (external reference)
+ *
+ *  Options for PCL-718:
+ *  [0] - IO Base
+ *  [1] - IRQ        (0=disable, 2, 3, 4, 5, 6, 7)
+ *  [2] - DMA        (0=disable, 1, 3)
+ *  [3] - 0, 10=10MHz clock for 8254
+ *            1= 1MHz clock for 8254
+ *  [4] -     0=A/D Range is +/-10V
+ *            1=             +/-5V
+ *            2=             +/-2.5V
+ *            3=             +/-1V
+ *            4=             +/-0.5V
+ *            5=             user defined bipolar
+ *            6=             0-10V
+ *            7=             0-5V
+ *            8=             0-2V
+ *            9=             0-1V
+ *           10=             user defined unipolar
+ *  [5] - 0,  5=D/A outputs 0-5V  (internal reference -5V)
+ *        1, 10=D/A outputs 0-10V (internal reference -10V)
+ *            2=D/A outputs unknown (external reference)
+ *  [6] - 0, 60=max  60kHz A/D sampling
+ *        1,100=max 100kHz A/D sampling (PCL-718 with Option 001 installed)
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/gfp.h>
@@ -108,7 +101,7 @@ A word or two about DMA. Driver support DMA operations at two ways:
 
 #include "comedi_isadma.h"
 #include "comedi_fc.h"
-#include "8253.h"
+#include "comedi_8254.h"
 
 /* boards constants */
 
@@ -304,32 +297,16 @@ static const struct pcl818_board boardtypes[] = {
 
 struct pcl818_private {
 	struct comedi_isadma *dma;
-	unsigned int ns_min;	/*  manimal allowed delay between samples (in us) for actual card */
-	int i8253_osc_base;	/*  1/frequency of on board oscilator in ns */
-	unsigned int act_chanlist[16];	/*  MUX setting for actual AI operations */
+	/*  manimal allowed delay between samples (in us) for actual card */
+	unsigned int ns_min;
+	/*  MUX setting for actual AI operations */
+	unsigned int act_chanlist[16];
 	unsigned int act_chanlist_len;	/*  how long is actual MUX list */
 	unsigned int act_chanlist_pos;	/*  actual position in MUX list */
-	unsigned int divisor1;
-	unsigned int divisor2;
 	unsigned int usefifo:1;
 	unsigned int ai_cmd_running:1;
 	unsigned int ai_cmd_canceled:1;
 };
-
-static void pcl818_start_pacer(struct comedi_device *dev, bool load_counters)
-{
-	struct pcl818_private *devpriv = dev->private;
-	unsigned long timer_base = dev->iobase + PCL818_TIMER_BASE;
-
-	i8254_set_mode(timer_base, 0, 2, I8254_MODE2 | I8254_BINARY);
-	i8254_set_mode(timer_base, 0, 1, I8254_MODE2 | I8254_BINARY);
-	udelay(1);
-
-	if (load_counters) {
-		i8254_write(timer_base, 0, 2, devpriv->divisor2);
-		i8254_write(timer_base, 0, 1, devpriv->divisor1);
-	}
-}
 
 static void pcl818_ai_setup_dma(struct comedi_device *dev,
 				struct comedi_subdevice *s,
@@ -625,7 +602,8 @@ static int check_channel_list(struct comedi_device *dev,
 				break;
 			nowmustbechan =
 			    (CR_CHAN(chansegment[i - 1]) + 1) % s->n_chan;
-			if (nowmustbechan != CR_CHAN(chanlist[i])) {	/*  channel list isn't continuous :-( */
+			if (nowmustbechan != CR_CHAN(chanlist[i])) {
+				/*  channel list isn't continuous :-( */
 				dev_dbg(dev->class_dev,
 					"channel list must be continuous! chanlist[%i]=%d but must be %d or %d!\n",
 					i, CR_CHAN(chanlist[i]), nowmustbechan,
@@ -667,9 +645,7 @@ static int ai_cmdtest(struct comedi_device *dev, struct comedi_subdevice *s,
 		      struct comedi_cmd *cmd)
 {
 	const struct pcl818_board *board = dev->board_ptr;
-	struct pcl818_private *devpriv = dev->private;
 	int err = 0;
-	unsigned int arg;
 
 	/* Step 1 : check if triggers are trivially valid */
 
@@ -716,11 +692,9 @@ static int ai_cmdtest(struct comedi_device *dev, struct comedi_subdevice *s,
 	/* step 4: fix up any arguments */
 
 	if (cmd->convert_src == TRIG_TIMER) {
-		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(devpriv->i8253_osc_base,
-					  &devpriv->divisor1,
-					  &devpriv->divisor2,
-					  &arg, cmd->flags);
+		unsigned int arg = cmd->convert_arg;
+
+		comedi_8254_cascade_ns_to_timer(dev->pacer, &arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -749,8 +723,6 @@ static int pcl818_ai_cmd(struct comedi_device *dev,
 
 	if (devpriv->ai_cmd_running)
 		return -EBUSY;
-
-	pcl818_start_pacer(dev, false);
 
 	seglen = check_channel_list(dev, s, cmd->chanlist, cmd->chanlist_len);
 	if (seglen < 1)
@@ -783,8 +755,10 @@ static int pcl818_ai_cmd(struct comedi_device *dev,
 	}
 	outb(ctrl, dev->iobase + PCL818_CTRL_REG);
 
-	if (cmd->convert_src == TRIG_TIMER)
-		pcl818_start_pacer(dev, true);
+	if (cmd->convert_src == TRIG_TIMER) {
+		comedi_8254_update_divisors(dev->pacer);
+		comedi_8254_pacer_enable(dev->pacer, 1, 2, true);
+	}
 
 	return 0;
 }
@@ -816,7 +790,7 @@ static int pcl818_ai_cancel(struct comedi_device *dev,
 	}
 
 	outb(PCL818_CTRL_DISABLE_TRIG, dev->iobase + PCL818_CTRL_REG);
-	pcl818_start_pacer(dev, false);
+	comedi_8254_pacer_enable(dev->pacer, 1, 2, false);
 	pcl818_ai_clear_eoc(dev);
 
 	if (devpriv->usefifo) {	/*  FIFO shutdown */
@@ -910,7 +884,6 @@ static int pcl818_do_insn_bits(struct comedi_device *dev,
 static void pcl818_reset(struct comedi_device *dev)
 {
 	const struct pcl818_board *board = dev->board_ptr;
-	unsigned long timer_base = dev->iobase + PCL818_TIMER_BASE;
 	unsigned int chan;
 
 	/* flush and disable the FIFO */
@@ -928,9 +901,6 @@ static void pcl818_reset(struct comedi_device *dev)
 
 	/* stop pacer */
 	outb(PCL818_CNTENABLE_PACER_ENA, dev->iobase + PCL818_CNTENABLE_REG);
-	i8254_set_mode(timer_base, 0, 2, I8254_MODE0 | I8254_BINARY);
-	i8254_set_mode(timer_base, 0, 1, I8254_MODE0 | I8254_BINARY);
-	i8254_set_mode(timer_base, 0, 0, I8254_MODE0 | I8254_BINARY);
 
 	/* set analog output channels to 0V */
 	for (chan = 0; chan < board->n_aochan; chan++) {
@@ -1020,6 +990,7 @@ static int pcl818_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	const struct pcl818_board *board = dev->board_ptr;
 	struct pcl818_private *devpriv;
 	struct comedi_subdevice *s;
+	unsigned int osc_base;
 	int ret;
 
 	devpriv = comedi_alloc_devpriv(dev, sizeof(*devpriv));
@@ -1046,6 +1017,25 @@ static int pcl818_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	/* we need an IRQ to do DMA on channel 3 or 1 */
 	if (dev->irq && board->has_dma)
 		pcl818_alloc_dma(dev, it->options[2]);
+
+	/* use 1MHz or 10MHz oscilator */
+	if ((it->options[3] == 0) || (it->options[3] == 10))
+		osc_base = I8254_OSC_BASE_10MHZ;
+	else
+		osc_base = I8254_OSC_BASE_1MHZ;
+
+	dev->pacer = comedi_8254_init(dev->iobase + PCL818_TIMER_BASE,
+				      osc_base, I8254_IO8, 0);
+	if (!dev->pacer)
+		return -ENOMEM;
+
+	/* max sampling speed */
+	devpriv->ns_min = board->ns_min;
+	if (!board->is_818) {
+		/* extended PCL718 to 100kHz DAC */
+		if ((it->options[6] == 1) || (it->options[6] == 100))
+			devpriv->ns_min = 10000;
+	}
 
 	ret = comedi_alloc_subdevices(dev, 4);
 	if (ret)
@@ -1120,20 +1110,6 @@ static int pcl818_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->maxdata	= 1;
 	s->range_table	= &range_digital;
 	s->insn_bits	= pcl818_do_insn_bits;
-
-	/* select 1/10MHz oscilator */
-	if ((it->options[3] == 0) || (it->options[3] == 10))
-		devpriv->i8253_osc_base = I8254_OSC_BASE_10MHZ;
-	else
-		devpriv->i8253_osc_base = I8254_OSC_BASE_1MHZ;
-
-	/* max sampling speed */
-	devpriv->ns_min = board->ns_min;
-
-	if (!board->is_818) {
-		if ((it->options[6] == 1) || (it->options[6] == 100))
-			devpriv->ns_min = 10000;	/* extended PCL718 to 100kHz DAC */
-	}
 
 	pcl818_reset(dev);
 

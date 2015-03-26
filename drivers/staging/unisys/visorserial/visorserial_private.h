@@ -16,7 +16,6 @@
  */
 
 #include "timskmod.h"
-#include "charqueue.h"
 #include "visorbus.h"
 #include "visorchannel.h"
 #include "consolechannel.h"

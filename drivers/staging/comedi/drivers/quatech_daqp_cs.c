@@ -48,15 +48,10 @@ Devices: [Quatech] DAQP-208 (daqp), DAQP-308
 */
 
 #include <linux/module.h>
-#include "../comedidev.h"
 #include <linux/semaphore.h>
-
-#include <pcmcia/cistpl.h>
-#include <pcmcia/cisreg.h>
-#include <pcmcia/ds.h>
-
 #include <linux/completion.h>
 
+#include "../comedi_pcmcia.h"
 #include "comedi_fc.h"
 
 struct daqp_private {
@@ -320,7 +315,6 @@ static int daqp_ai_insn_read(struct comedi_device *dev,
 	devpriv->interrupt_mode = semaphore;
 
 	for (i = 0; i < insn->n; i++) {
-
 		/* Start conversion */
 		outb(DAQP_COMMAND_ARM | DAQP_COMMAND_FIFO_DATA,
 		     dev->iobase + DAQP_COMMAND);
