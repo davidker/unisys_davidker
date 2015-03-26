@@ -500,11 +500,40 @@ static ssize_t info_debugfs_read(struct file *file, char __user *buf,
 	return bytes_read;
 }
 
-static ssize_t enable_ints_write(struct file *file, const char __user *buf,
-				 size_t len, loff_t *ppos)
+static ssize_t enable_ints_write(struct file *file,
+				 const char __user *buffer,
+				 size_t count, loff_t *ppos)
 {
-	/* DO NOTHING FOR NOW */
-	return len;
+	char buf[4];
+	int i, new_value;
+	struct visornic_devdata *devdata;
+
+	if (count >= ARRAY_SIZE(buf))
+		return -EINVAL;
+
+	buf[count] = '\0';
+	if (copy_from_user(buf, buffer, count)) {
+		LOGERR("copy_from_user_failed.\n");
+		return -EFAULT;
+	}
+
+	i = kstrtoint(buf, 10, &new_value);
+
+	if (i != 0) {
+		LOGERR("Failed to scan value for enable_ints, buf<<%.*s>>",
+		       (int)count, buf);
+		return -EFAULT;
+	}
+
+	/* set all counts to new_value usually 0 */
+	for (i = 0; i < VISORNICSOPENMAX; i++) {
+		if (num_visornic_open[i]) {
+			devdata = num_visornic_open[i];
+			/* TODO update features bit in channel */
+		}
+	}
+
+	return count;
 }
 
 static void
