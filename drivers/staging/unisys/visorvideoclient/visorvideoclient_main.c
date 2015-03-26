@@ -32,7 +32,6 @@
 #include "consolevideochannel.h"
 #include "consoleframebufferchannel.h"
 #include "consoleframebuffermemorychannel.h"
-#include "easyproc.h"
 
 static spinlock_t devnopool_lock;
 static void *dev_no_pool;	/**< pool to grab device numbers from */
@@ -94,7 +93,6 @@ struct visorvideoclient_devdata {
 	char name[99];
 	struct list_head list_all;   /**< link within list_all_devices list */
 	struct kref kref;
-	struct easyproc_device_info procinfo;
 };
 
 /** List of all visorvideoclient_devdata structs,

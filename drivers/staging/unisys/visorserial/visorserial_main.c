@@ -16,7 +16,6 @@
  */
 
 #include "visorserial_private.h"
-#include "easyproc.h"
 #include "linuxserial.h"
 #include "linuxconsole.h"
 #include "uisutils.h"
@@ -26,7 +25,6 @@ static dev_t majordevserial = -1;
 				/**< indicates major num for serial devices */
 static spinlock_t devnopool_lock;
 static void *devnopool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info easyproc_driver_info;
 
 static int visorserial_probe(struct visor_device *dev);
 static void visorserial_remove(struct visor_device *dev);
@@ -130,7 +128,6 @@ struct visorserial_devdata {
 	struct device_attribute devdata_property[prop_DEVDATAMAX];
 	struct kref kref;
 	struct cdev cdev_serial;
-	struct easyproc_device_info procinfo;
 	int xmitqueue;
 	int recvqueue;
 	struct linux_serial *linuxserial;
@@ -170,8 +167,6 @@ static void new_char_from_host(struct visorserial_devdata *devdata, u8 c);
 static void new_char_to_host(void *context, u8 c);
 static void serial_destroy_file(struct visorserial_filedata_serial *filedata);
 static void host_side_disappeared(struct visorserial_devdata *devdata);
-static void visorserial_show_device_info(struct seq_file *seq, void *p);
-static void visorserial_show_driver_info(struct seq_file *seq);
 
 /*  DEVICE attributes
  *
@@ -372,8 +367,6 @@ visorserial_probe(struct visor_device *dev)
 	if (register_device_attributes(dev) < 0)
 			return -1;
 
-	visor_easyproc_InitDevice(&easyproc_driver_info,
-				  &devdata->procinfo, devdata->devno, devdata);
 	return 0;
 }
 
@@ -387,8 +380,6 @@ visorserial_remove(struct visor_device *dev)
 
 	unregister_device_attributes(dev);
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&easyproc_driver_info,
-				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
 }
 
@@ -550,7 +541,6 @@ visorserial_cleanup_guts(void)
 	destroy_workqueue(periodic_dev_workqueue);
 	periodic_dev_workqueue = NULL;
 	bus_unregister(&simplebus_type);
-	visor_easyproc_DeInitDriver(&easyproc_driver_info);
 	if (MAJOR(majordevserial) >= 0) {
 		unregister_chrdev_region(majordevserial, MAXDEVICES);
 		majordevserial = MKDEV(0, 0);
@@ -577,10 +567,6 @@ visorserial_init(void)
 				MYDRVNAME "_serial") < 0) {
 		goto cleanups;
 	}
-	visor_easyproc_InitDriver(&easyproc_driver_info,
-				  MYDRVNAME,
-				  visorserial_show_driver_info,
-				  visorserial_show_device_info);
 	rc = bus_register(&simplebus_type);
 	if (rc < 0)
 			goto cleanups;
@@ -953,53 +939,6 @@ visorserial_serial_poll(struct file *file, poll_table *wait)
 	if (serial_ready_to_read(filedata))
 			return POLLIN | POLLRDNORM;
 	return 0;
-}
-
-static void
-visorserial_show_device_info(struct seq_file *seq, void *p)
-{
-	struct visorserial_devdata *devdata =
-	    (struct visorserial_devdata *)(p);
-
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-	seq_printf(seq, "host_bytes_in=%llu\n",
-		   devdata->counter.host_bytes_in);
-	seq_printf(seq, "host_bytes_out=%llu\n",
-		   devdata->counter.host_bytes_out);
-	seq_printf(seq, "umode_bytes_in=%llu\n",
-		   devdata->counter.umode_bytes_in);
-	seq_printf(seq, "umode_bytes_out=%llu\n",
-		   devdata->counter.umode_bytes_out);
-	if (devdata->dev == NULL || devdata->dev->visorchannel == NULL)
-		return;
-	visorchannel_debug(devdata->dev->visorchannel, 2, seq, 0);
-	visorchannel_dump_section
-	    (devdata->dev->visorchannel, "InData",
-	     offsetof(ULTRA_CONSOLE_CHANNEL_PROTOCOL, InData),
-	     sizeofmember(ULTRA_CONSOLE_CHANNEL_PROTOCOL, InData), seq);
-	visorchannel_dump_section
-	    (devdata->dev->visorchannel, "OutData",
-	     offsetof(ULTRA_CONSOLE_CHANNEL_PROTOCOL, OutData),
-	     sizeofmember(ULTRA_CONSOLE_CHANNEL_PROTOCOL, OutData), seq);
-}
-
-static void
-visorserial_show_driver_info(struct seq_file *seq)
-{
-	char *p = lxcon_get_early_buffer();
-
-	seq_printf(seq, "Version=%s\n", VERSION);
-	seq_printf(seq, "Console_write_bytes=%lu\n",
-		   visorserial_console_write_bytes);
-	seq_printf(seq, "Console_dropped_bytes=%lu\n",
-		   visorserial_console_dropped_bytes);
-	seq_puts(seq, "    -*-*-*-*-*- begin console buffer -*-*-*-*-*-\n");
-	if (p)
-		while (*p)
-			seq_printf(seq, "%c", *(p++));
-	seq_puts(seq, "\n");
-	seq_puts(seq, "    -*-*-*-*-*-  end  console buffer -*-*-*-*-*-\n");
 }
 
 module_param_named(rxtxswap, visorserial_rxtxswap, int, S_IRUGO);

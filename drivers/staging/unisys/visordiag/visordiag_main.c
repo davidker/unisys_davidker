@@ -16,7 +16,6 @@
  */
 
 #include "visordiag_private.h"
-#include "easyproc.h"
 #include "diagnostics/appos_subsystems.h"
 #include "uisutils.h"
 #include <linux/time.h>
@@ -166,7 +165,6 @@ struct visordiag_devdata {
 	struct DEVDATA_COUNTERS counter;
 	struct device_attribute devdata_property[prop_DEVDATAMAX];
 	struct kref kref;
-	struct easyproc_device_info procinfo;
 	int xmitqueue;
 
 	struct diag_channel_protocol_header __iomem *diag_channel_header;
