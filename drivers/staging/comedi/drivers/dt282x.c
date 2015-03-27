@@ -685,14 +685,7 @@ static int dt282x_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
 
-	if (cmd->scan_begin_src == TRIG_FOLLOW) {
-		/* internal trigger */
-		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
-	} else {
-		/* external trigger */
-		/* should be level/edge, hi/lo specification here */
-		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
-	}
+	err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
 
 	err |= cfc_check_trigger_arg_min(&cmd->convert_arg, 4000);
 
@@ -771,7 +764,7 @@ static int dt282x_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 	if (cmd->scan_begin_src == TRIG_FOLLOW) {
 		outw(devpriv->supcsr | DT2821_SUPCSR_STRIG,
-			dev->iobase + DT2821_SUPCSR_REG);
+		     dev->iobase + DT2821_SUPCSR_REG);
 	} else {
 		devpriv->supcsr |= DT2821_SUPCSR_XTRIG;
 		outw(devpriv->supcsr, dev->iobase + DT2821_SUPCSR_REG);
@@ -881,7 +874,6 @@ static int dt282x_ao_cmdtest(struct comedi_device *dev,
 		return 4;
 
 	return 0;
-
 }
 
 static int dt282x_ao_inttrig(struct comedi_device *dev,

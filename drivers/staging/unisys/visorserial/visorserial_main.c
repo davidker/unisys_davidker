@@ -16,16 +16,15 @@
  */
 
 #include "visorserial_private.h"
-#include "easyproc.h"
 #include "linuxserial.h"
 #include "linuxconsole.h"
 #include "uisutils.h"
+#include <linux/kfifo.h>
 
 static dev_t majordevserial = -1;
 				/**< indicates major num for serial devices */
 static spinlock_t devnopool_lock;
 static void *devnopool;	/**< pool to grab device numbers from */
-static struct easyproc_driver_info easyproc_driver_info;
 
 static int visorserial_probe(struct visor_device *dev);
 static void visorserial_remove(struct visor_device *dev);
@@ -129,7 +128,6 @@ struct visorserial_devdata {
 	struct device_attribute devdata_property[prop_DEVDATAMAX];
 	struct kref kref;
 	struct cdev cdev_serial;
-	struct easyproc_device_info procinfo;
 	int xmitqueue;
 	int recvqueue;
 	struct linux_serial *linuxserial;
@@ -140,23 +138,17 @@ static LIST_HEAD(list_all_devices);
 static DEFINE_SPINLOCK(lock_all_devices);
 
 #define devdata_put(devdata, why)					\
-	do {								\
+	{								\
 		int refcount;						\
 		kref_put(&devdata->kref, devdata_release);		\
 		refcount = atomic_read(&devdata->kref.refcount);	\
-		if (visorserial_debugref)				\
-			VISORBUS_DEBUG_REFCOUNT_CHANGE			\
-				(refcount+1, refcount, devdata, why);	\
-	} while (0)
+	}
 #define devdata_get(devdata, why)					\
-	do {								\
+	{								\
 		int refcount;						\
 		kref_get(&devdata->kref);				\
 		refcount = atomic_read(&devdata->kref.refcount);	\
-		if (visorserial_debugref)				\
-			VISORBUS_DEBUG_REFCOUNT_CHANGE			\
-				(refcount-1, refcount, devdata, why);	\
-	} while (0)
+	}
 
 /** This is the private data that we store for each file descriptor that is
  *  opened to the "serial" character device.
@@ -167,7 +159,7 @@ struct visorserial_filedata_serial {
 	struct list_head list_all;
 	/** tasks queued here are waiting for read data */
 	wait_queue_head_t waiting_readers;
-	struct charqueue *data_from_host;
+	struct kfifo *data_from_host;
 	unsigned char buf[NFILEWRITEBYTESTOBUFFER];
 };
 
@@ -175,8 +167,6 @@ static void new_char_from_host(struct visorserial_devdata *devdata, u8 c);
 static void new_char_to_host(void *context, u8 c);
 static void serial_destroy_file(struct visorserial_filedata_serial *filedata);
 static void host_side_disappeared(struct visorserial_devdata *devdata);
-static void visorserial_show_device_info(struct seq_file *seq, void *p);
-static void visorserial_show_driver_info(struct seq_file *seq);
 
 /*  DEVICE attributes
  *
@@ -212,7 +202,7 @@ devdata_property_show(struct device *ddev,
 static int
 register_devdata_attributes(struct visor_device *dev)
 {
-	int rc, i;
+	int i, rc = 0;
 	struct visorserial_devdata *devdata = visor_get_drvdata(dev);
 	struct device_attribute *pattr = devdata->devdata_property;
 
@@ -222,30 +212,16 @@ register_devdata_attributes(struct visor_device *dev)
 		pattr[i].show = devdata_property_show;
 		pattr[i].store = NULL;
 		rc = device_create_file(&dev->device, &pattr[i]);
-		if (rc < 0) {
-			ERRDRV("device_create_file(&dev->device, &pattr[i]): (status=%d)\n", rc);
-			goto cleanups;
-		}
+		if (rc < 0)
+			return rc;
 	}
-
-	rc = 0;
-cleanups:
-	return rc;
+	return 0;
 }
 
 static int
 register_device_attributes(struct visor_device *dev)
 {
-	int rc;
-
-	rc = register_devdata_attributes(dev);
-	if (rc < 0) {
-		ERRDRV("register_devdata_attributes(dev): (status=%d)\n", rc);
-		goto cleanups;
-	}
-	rc = 0;
-cleanups:
-	return rc;
+	return register_devdata_attributes(dev);
 }
 
 static int
@@ -277,10 +253,9 @@ devdata_create(struct visor_device *dev)
 
 	devdata = kmalloc(sizeof(*devdata),
 			  GFP_KERNEL|__GFP_NORETRY);
-	if (devdata == NULL) {
-		ERRDRV("allocation of visorserial_devdata failed\n");
+	if (devdata == NULL)
 		goto cleanups;
-	}
+
 	memset(devdata, '\0', sizeof(struct visorserial_devdata));
 	cdev_init(&devdata->cdev_serial, NULL);
 	spin_lock(&devnopool_lock);
@@ -289,10 +264,8 @@ devdata_create(struct visor_device *dev)
 	spin_unlock(&devnopool_lock);
 	if (devno == MAXDEVICES)
 		devno = -1;
-	if (devno < 0) {
-		ERRDRV("attempt to create more than MAXDEVICES devices\n");
+	if (devno < 0)
 		goto cleanups;
-	}
 
 	devdata->devno = devno;
 	devdata->dev = dev;
@@ -308,7 +281,6 @@ devdata_create(struct visor_device *dev)
 	devdata->cdev_serial.owner = THIS_MODULE;
 	if (cdev_add(&devdata->cdev_serial,
 		     MKDEV(MAJOR(majordevserial), devdata->devno), 1) < 0) {
-		ERRDRV("failed to create serial char device\n");
 		goto cleanups;
 	}
 
@@ -356,7 +328,6 @@ devdata_release(struct kref *mykref)
 							   struct
 							   visorserial_devdata,
 							   kref);
-	INFODRV("%s", __func__);
 	spin_lock(&devnopool_lock);
 	clear_bit(devdata->devno, devnopool);
 	spin_unlock(&devnopool_lock);
@@ -373,49 +344,30 @@ devdata_release(struct kref *mykref)
 		up_read(&devdata->lock_visor_dev);
 	}
 	kfree(devdata);
-	INFODRV("%s finished", __func__);
 }
 
 static int
 visorserial_probe(struct visor_device *dev)
 {
-	int rc = 0;
 	struct visorserial_devdata *devdata = NULL;
 
-	INFODRV("%s", __func__);
-
 	devdata = devdata_create(dev);
-	if (devdata == NULL) {
-		rc = -1;
-		goto cleanups;
-	}
+	if (devdata == NULL)
+			return -1;
+
 	if (ULTRA_CONSOLE_CHANNEL_OK_CLIENT
 	    (visorchannel_get_header(dev->visorchannel), NULL) ||
 	    ULTRA_CONSOLESERIAL_CHANNEL_OK_CLIENT
 	    (visorchannel_get_header(dev->visorchannel), NULL))
 		;
-	else {
-		rc = -1;
-		ERRDRV("consoleserial channel cannot be used: (status=%d)\n",
-		       rc);
-		goto cleanups;
-	}
-	visor_set_drvdata(dev, devdata);
-	if (register_device_attributes(dev) < 0) {
-		rc = -1;
-		ERRDRV("register_device_attributes failed: (status=%d)\n", rc);
-		goto cleanups;
-	}
-	visor_easyproc_InitDevice(&easyproc_driver_info,
-				  &devdata->procinfo, devdata->devno, devdata);
+	else
+		return -1;
 
-cleanups:
-	INFODRV("%s finished", __func__);
-	if (rc < 0) {
-		if (devdata != NULL)
-			devdata_put(devdata, "existence");
-	}
-	return rc;
+	visor_set_drvdata(dev, devdata);
+	if (register_device_attributes(dev) < 0)
+			return -1;
+
+	return 0;
 }
 
 static void
@@ -423,20 +375,12 @@ visorserial_remove(struct visor_device *dev)
 {
 	struct visorserial_devdata *devdata = visor_get_drvdata(dev);
 
-	INFODRV("%s", __func__);
-	if (devdata == NULL) {
-		ERRDRV("no devdata in %s", __func__);
-		goto cleanups;
-	}
+	if (devdata == NULL)
+		return;
+
 	unregister_device_attributes(dev);
 	visor_set_drvdata(dev, NULL);
-	visor_easyproc_DeInitDevice(&easyproc_driver_info,
-				    &devdata->procinfo, devdata->devno);
 	host_side_disappeared(devdata);
-	devdata_put(devdata, "existence");
-
-cleanups:
-	INFODRV("%s finished", __func__);
 }
 
 static void
@@ -445,26 +389,19 @@ visorserial_channel_interrupt(struct visor_device *dev)
 	u8 data;
 	struct visorserial_devdata *devdata = visor_get_drvdata(dev);
 
-	if (devdata == NULL) {
-		ERRDRV("no devdata in %s", __func__);
-		goto cleanups;
-	}
-	/* INFODRV("%s", __func__); */
+	if (devdata == NULL)
+		return;
+
 	while (visorchannel_signalremove(dev->visorchannel,
 					 devdata->recvqueue, &data)) {
 		new_char_from_host(devdata, data);
 		devdata->counter.host_bytes_in++;
 	}
-
-cleanups:
-	;
 }
 
 static void
 destroy_visor_device(struct visor_device *dev)
 {
-	char s[99];
-
 	if (dev == NULL)
 		return;
 	if (dev->periodic_work != NULL) {
@@ -472,8 +409,6 @@ destroy_visor_device(struct visor_device *dev)
 		dev->periodic_work = NULL;
 	}
 	if (dev->visorchannel != NULL) {
-		INFODRV("Channel %s disconnected",
-			visorchannel_id(dev->visorchannel, s));
 		visorchannel_destroy(dev->visorchannel);
 		dev->visorchannel = NULL;
 	}
@@ -485,7 +420,6 @@ simplebus_release_device(struct device *xdev)
 {
 	struct visor_device *dev = to_visor_device(xdev);
 
-	INFODEV(dev_name(&dev->device), "child device destroyed");
 	destroy_visor_device(dev);
 }
 
@@ -536,24 +470,18 @@ create_visor_device(u64 addr)
 	struct visorchannel *visorchannel = NULL;
 	struct visor_device *dev = NULL;
 	BOOL gotten = FALSE;
-	char s[99];
 	uuid_le guid = ULTRA_CONSOLE_CHANNEL_PROTOCOL_GUID;
 
 	/* prepare chan_hdr (abstraction to read/write channel memory) */
 	visorchannel =
 	    visorchannel_create(addr, 0 /*size in chan hdr */ , guid);
-	if (visorchannel == NULL) {
-		ERRDRV("channel addr = 0x%-16.16Lx", addr);
-		ERRDRV("visorchannel_create failed\n");
-		goto cleanups;
-	}
-	INFODRV("Channel %s discovered and connected",
-		visorchannel_id(visorchannel, s));
+	if (visorchannel == NULL)
+			goto cleanups;
+
 	dev = kmalloc(sizeof(dev), GFP_KERNEL|__GFP_NORETRY);
-	if (dev == NULL) {
-		ERRDRV("failed to allocate visor_device\n");
-		goto cleanups;
-	}
+	if (dev == NULL)
+			goto cleanups;
+
 	memset(dev, 0, sizeof(struct visor_device));
 	dev->visorchannel = visorchannel;
 	sema_init(&dev->visordriver_callback_lock, 1);	/* unlocked */
@@ -568,10 +496,8 @@ create_visor_device(u64 addr)
 							dev_periodic_work,
 							dev,
 							dev_name(&dev->device));
-	if (dev->periodic_work == NULL) {
-		ERRDRV("failed to create periodic_work\n");
-		goto cleanups;
-	}
+	if (dev->periodic_work == NULL)
+			goto cleanups;
 
 	/* bus_id must be a unique name with respect to this bus TYPE
 	 * (NOT bus instance).  That's why we need to include the bus
@@ -579,15 +505,9 @@ create_visor_device(u64 addr)
 	 */
 	dev_set_name(&dev->device, "visorconsole");
 
-	if (device_add(&dev->device) < 0) {
-		ERRDRV("device_add failed\n");
-		goto cleanups;
-	}
+	if (device_add(&dev->device) < 0)
+			goto cleanups;
 	/* note: device_register is simply device_initialize + device_add */
-
-	INFODEV(dev_name(&dev->device),
-		"child device 0x%p created", &dev->device);
-
 	rc = dev;
 cleanups:
 	if (rc == NULL) {
@@ -621,7 +541,6 @@ visorserial_cleanup_guts(void)
 	destroy_workqueue(periodic_dev_workqueue);
 	periodic_dev_workqueue = NULL;
 	bus_unregister(&simplebus_type);
-	visor_easyproc_DeInitDriver(&easyproc_driver_info);
 	if (MAJOR(majordevserial) >= 0) {
 		unregister_chrdev_region(majordevserial, MAXDEVICES);
 		majordevserial = MKDEV(0, 0);
@@ -638,69 +557,40 @@ visorserial_init(void)
 	int rc = -1;
 	u64 visorserial_addr = 0;
 
-	INFODRV("driver version %s loaded", VERSION);
-	/* uintpool_test(); */
-	INFODRV("Built with:");
-	INFODRV("         STANDALONE_CLIENT yes");
-	INFODRV("option - rxtxswap=%d", visorserial_rxtxswap);
-	INFODRV("         createttydevice=%d",
-		visorserial_createttydevice);
-	INFODRV("         channeladdress=0x%lx",
-		visorserial_channeladdress);
-	INFODRV("         clearchannel=%d",
-		visorserial_clearchannel);
-	INFODRV("         debug=%d", visorserial_debug);
-	INFODRV("         debugref=%d", visorserial_debugref);
-
 	majordevserial = MKDEV(0, 0);
 	spin_lock_init(&devnopool_lock);
 	devnopool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (devnopool == NULL) {
-		ERRDRV("Unable to create devnopool");
-		goto cleanups;
-	}
+	if (devnopool == NULL)
+			goto cleanups;
+
 	if (alloc_chrdev_region(&majordevserial, 0, MAXDEVICES,
 				MYDRVNAME "_serial") < 0) {
-		ERRDRV("Unable to register char device %s",
-		       MYDRVNAME "_serial");
 		goto cleanups;
 	}
-	visor_easyproc_InitDriver(&easyproc_driver_info,
-				  MYDRVNAME,
-				  visorserial_show_driver_info,
-				  visorserial_show_device_info);
 	rc = bus_register(&simplebus_type);
-	if (rc < 0) {
-		ERRDRV("bus_register(&simplebus_type): (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (rc < 0)
+			goto cleanups;
+
 	periodic_dev_workqueue = create_singlethread_workqueue("visorconsole");
 	if (periodic_dev_workqueue == NULL) {
 		rc = -ENOMEM;
-		ERRDRV("cannot create dev workqueue: (status=%d)\n", rc);
 		goto cleanups;
 	}
 	if (!visorserial_channeladdress) {
-		INFODRV("channeladdress module/kernel parameter not specified so issuing vmcall");
 		if (!VMCALL_SUCCESSFUL
 		    (issue_vmcall_io_visorserial_addr(&visorserial_addr))) {
-			ERRDRV("channeladdress module/kernel parameter not specified and vmcall failed.");
 			rc = -1;
 			goto cleanups;
 		}
-		INFODRV("visorserial channel addr=%llx", visorserial_addr);
 		visorserial_channeladdress = visorserial_addr;
 	}
 	standalonedevice =
 	    create_visor_device(visorserial_channeladdress);
 	if (standalonedevice == NULL) {
-		ERRDRV("failed to initialize channel @ 0x%lx",
-		       visorserial_channeladdress);
 		rc = -1;
 		goto cleanups;
 	}
 	if (visorserial_probe(standalonedevice) < 0) {
-		ERRDRV("probe failed");
 		rc = -1;
 		goto cleanups;
 	}
@@ -719,7 +609,6 @@ static void
 visorserial_cleanup(void)
 {
 	visorserial_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 static struct visorserial_filedata_serial *
@@ -738,7 +627,7 @@ serial_create_file(struct visorserial_devdata *devdata)
 	devdata_get(devdata, "create_file");
 	filedata->data_from_host = NULL;
 	init_waitqueue_head(&filedata->waiting_readers);
-	filedata->data_from_host = visor_charqueue_create(NHOSTBYTESTOBUFFER);
+	kfifo_alloc(filedata->data_from_host, NHOSTBYTESTOBUFFER, GFP_KERNEL);
 	if (filedata->data_from_host == NULL) {
 		rc = NULL;
 		goto cleanups;
@@ -758,7 +647,7 @@ static void
 serial_destroy_file(struct visorserial_filedata_serial *filedata)
 {
 	if (filedata->data_from_host != NULL) {
-		visor_charqueue_destroy(filedata->data_from_host);
+		kfifo_free(filedata->data_from_host);
 		filedata->data_from_host = NULL;
 	}
 	devdata_put(filedata->devdata, "create_file");
@@ -768,7 +657,7 @@ serial_destroy_file(struct visorserial_filedata_serial *filedata)
 static void
 serial_new_host_char(struct visorserial_filedata_serial *filedata, u8 c)
 {
-	visor_charqueue_enqueue(filedata->data_from_host, c);
+	kfifo_in(filedata->data_from_host, filedata->buf, c);
 	wake_up(&filedata->waiting_readers);
 }
 
@@ -796,10 +685,9 @@ new_char_to_host(void *context, u8 c)
 	    (struct visorserial_devdata *)(context);
 	int done = 0;
 
-	if (devdata->dev == NULL) {
-		HUHDRV("dev is NULL in %s??", __func__);
-		return;
-	}
+	if (devdata->dev == NULL)
+			return;
+
 	while (!done) {
 		if (visorchannel_signalinsert(devdata->dev->visorchannel,
 					      devdata->xmitqueue, &c)) {
@@ -841,7 +729,7 @@ host_side_disappeared(struct visorserial_devdata *devdata)
 static BOOL
 serial_ready_to_read(struct visorserial_filedata_serial *filedata)
 {
-	if (!visor_charqueue_is_empty(filedata->data_from_host))
+	if (!kfifo_is_empty(filedata->data_from_host))
 		return TRUE;
 	if (filedata->devdata->dev == NULL)	/* channel disappeared */
 		return TRUE;
@@ -853,7 +741,6 @@ first_file_opened(struct visorserial_filedata_serial *filedata)
 {
 	struct visorserial_devdata *devdata = filedata->devdata;
 
-	INFODEV(devdata->name, "lights on");
 	if (devdata->linuxserial == NULL) {
 		down_read(&devdata->lock_visor_dev);
 		if (devdata->dev != NULL)
@@ -867,7 +754,6 @@ last_file_closed(struct visorserial_filedata_serial *filedata)
 {
 	struct visorserial_devdata *devdata = filedata->devdata;
 
-	INFODEV(devdata->name, "lights off");
 	if (devdata->linuxserial == NULL) {
 		down_read(&devdata->lock_visor_dev);
 		if (devdata->dev != NULL)
@@ -882,19 +768,13 @@ visorserial_serial_open(struct inode *inode, struct file *file)
 	struct visorserial_devdata *devdata = NULL;
 	struct visorserial_filedata_serial *filedata = NULL;
 	unsigned minor_number = iminor(inode);
-	int rc = -ENODEV;
 
 	list_for_each_entry(devdata, &list_all_devices, list_all) {
 		if (devdata->devno == minor_number) {
-			INFODEV(devdata->name,
-				"%s minor=%d", __func__, minor_number);
 			filedata = serial_create_file(devdata);
-			if (filedata == NULL) {
-				rc = -ENOMEM;
-				ERRDRV("cannot alloc file data: (status=%d)\n",
-				       rc);
-				goto cleanups;
-			}
+			if (filedata == NULL)
+				return -ENOMEM;
+
 			file->private_data = filedata;
 			write_lock(&devdata->lock_files);
 			list_add_tail(&filedata->list_all,
@@ -905,36 +785,26 @@ visorserial_serial_open(struct inode *inode, struct file *file)
 			if (devdata->open_file_count == 1)
 				first_file_opened(filedata);
 			up_write(&devdata->lock_open_file_count);
-			rc = 0;
-			goto cleanups;
+			return 0;
 		}
 	}
-	rc = -ENODEV;
-cleanups:
-	if (rc < 0)
-		ERRDRV("%s minor=%d failed", __func__, minor_number);
-	return rc;
+	return -ENODEV;
 }
 
 static int
 visorserial_serial_release(struct inode *inode, struct file *file)
 {
-	int rc = -1;
 	struct visorserial_filedata_serial *filedata =
 	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto cleanups;
-	}
-	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (filedata == NULL)
+		return -1;
 
-	INFODEV(devdata->name, "%s", __func__);
+	devdata = filedata->devdata;
+	if (devdata == NULL)
+			return -1;
+
 	down_write(&devdata->lock_open_file_count);
 	if (devdata->open_file_count == 1)
 		last_file_closed(filedata);
@@ -945,9 +815,7 @@ visorserial_serial_release(struct inode *inode, struct file *file)
 	write_unlock(&devdata->lock_files);
 	serial_destroy_file(filedata);
 	file->private_data = NULL;
-	rc = 0;
-cleanups:
-	return rc;
+	return 0;
 }
 
 #ifdef HAVE_UNLOCKED_IOCTL
@@ -959,33 +827,24 @@ visorserial_serial_ioctl(struct inode *inode, struct file *file,
 			 unsigned int cmd, unsigned long arg)
 #endif
 {
-	int rc = -1;
 	struct visorserial_filedata_serial *filedata =
 	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto cleanups;
-	}
-	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (filedata == NULL)
+			return -1;
 
-	/* void __user *userptr = (void __user *)(arg); */
-	INFODEV(devdata->name, "%s cmd=0x%x", __func__, cmd);
-	rc = 0;
-cleanups:
-	return rc;
+	devdata = filedata->devdata;
+	if (devdata == NULL)
+			return -1;
+	return 0;
 }
 
 static ssize_t
 visorserial_serial_read(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
 {
-	int rc = -1, readchars = 0, mycount = count;
+	int readchars = 0, mycount = count;
 	struct visorserial_filedata_serial *filedata =
 	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
@@ -997,81 +856,60 @@ visorserial_serial_read(struct file *file, char __user *buf,
 	if (pos > 0 || !count)
 		return 0;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (filedata == NULL)
+			return -1;
+
 	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto cleanups;
-	}
-	DEBUGDEV(devdata->name, "%s", __func__);
+	if (devdata == NULL)
+			return -1;
+
 	if (file->f_flags & O_NONBLOCK)
-		if (!serial_ready_to_read(filedata)) {
-			rc = -EAGAIN;
-			goto cleanups;
-		}
+		if (!serial_ready_to_read(filedata))
+				return -EAGAIN;
 	if (mycount > NFILEREADBYTESTOBUFFER)
 		mycount = NFILEREADBYTESTOBUFFER;
 	while (readchars <= 0) {
 		wait_event_interruptible(filedata->waiting_readers,
 					 serial_ready_to_read(filedata));
-		if (signal_pending(current)) {
-			rc = -EINTR;
-			goto cleanups;
-		}
-		if (devdata->dev == NULL) {	/* channel disappeared */
-			rc = 0;	/* end-of-file */
-			goto cleanups;
-		}
-		readchars = visor_charqueue_dequeue_n(filedata->data_from_host,
-						      filedata->buf, mycount);
+		if (signal_pending(current))
+				return -EINTR;
+		if (devdata->dev == NULL)
+				return 0;
+		readchars = kfifo_out(filedata->data_from_host,
+				      filedata->buf, mycount);
 	}
-	if (copy_to_user(buf, filedata->buf, readchars)) {
-		rc = -EFAULT;
-		goto cleanups;
-	}
+	if (copy_to_user(buf, filedata->buf, readchars))
+			return -EFAULT;
 	devdata->counter.umode_bytes_out += readchars;
 	*ppos += readchars;
-	rc = readchars;
-cleanups:
-	DEBUGDEV(devdata->name, "%s read %d of %d", __func__,
-		 readchars, count);
-	return rc;
+	return readchars;
 }
 
 static ssize_t
 visorserial_serial_write(struct file *file,
 			 const char __user *buf, size_t count, loff_t *ppos)
 {
-	int rc = -1, i = 0, writechars = 0;
+	int i = 0, writechars = 0;
 	struct visorserial_filedata_serial *filedata =
 	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (filedata == NULL)
+		return -1;
+
 	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto cleanups;
-	}
-	DEBUGDEV(devdata->name, "%s", __func__);
+	if (devdata == NULL)
+		return -1;
+
 	if (count > NFILEWRITEBYTESTOBUFFER)
 		count = NFILEWRITEBYTESTOBUFFER;
-	if (copy_from_user(filedata->buf, buf, count)) {
-		rc = -EFAULT;
-		goto cleanups;
-	}
+	if (copy_from_user(filedata->buf, buf, count))
+		return -EFAULT;
 	devdata->counter.umode_bytes_in += count;
 	down_read(&devdata->lock_visor_dev);
 	if (devdata->dev == NULL) {	/* host channel is gone */
 		up_read(&devdata->lock_visor_dev);
-		rc = 0;	/* eof */
-		goto cleanups;
+		return 0;
 	}
 
 	for (i = 0; i < count; i++) {
@@ -1080,87 +918,27 @@ visorserial_serial_write(struct file *file,
 	}
 	up_read(&devdata->lock_visor_dev);
 
-	rc = count;
-cleanups:
-	DEBUGDEV(devdata->name, "%s wrote %d of %d", __func__,
-		 writechars, count);
-	return rc;
+	return count;
 }
 
 static unsigned int
 visorserial_serial_poll(struct file *file, poll_table *wait)
 {
-	int rc = -1;
 	struct visorserial_filedata_serial *filedata =
 	    (struct visorserial_filedata_serial *)(file->private_data);
 	struct visorserial_devdata *devdata = NULL;
 
-	if (filedata == NULL) {
-		ERRDRV("unknown file: (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (filedata == NULL)
+			return -1;
+
 	devdata = filedata->devdata;
-	if (devdata == NULL) {
-		ERRDRV("unknown device: (status=%d)\n", rc);
-		goto cleanups;
-	}
+	if (devdata == NULL)
+			return -1;
 
 	poll_wait(file, &filedata->waiting_readers, wait);
-	if (serial_ready_to_read(filedata)) {
-		rc = POLLIN | POLLRDNORM;
-		goto cleanups;
-	}
-
-	rc = 0;
-cleanups:
-	return rc;
-}
-
-static void
-visorserial_show_device_info(struct seq_file *seq, void *p)
-{
-	struct visorserial_devdata *devdata =
-	    (struct visorserial_devdata *)(p);
-
-	seq_printf(seq, "devno=%d\n", devdata->devno);
-	seq_printf(seq, "visorbus name = '%s'\n", devdata->name);
-	seq_printf(seq, "host_bytes_in=%llu\n",
-		   devdata->counter.host_bytes_in);
-	seq_printf(seq, "host_bytes_out=%llu\n",
-		   devdata->counter.host_bytes_out);
-	seq_printf(seq, "umode_bytes_in=%llu\n",
-		   devdata->counter.umode_bytes_in);
-	seq_printf(seq, "umode_bytes_out=%llu\n",
-		   devdata->counter.umode_bytes_out);
-	if (devdata->dev == NULL || devdata->dev->visorchannel == NULL)
-		return;
-	visorchannel_debug(devdata->dev->visorchannel, 2, seq, 0);
-	visorchannel_dump_section
-	    (devdata->dev->visorchannel, "InData",
-	     offsetof(ULTRA_CONSOLE_CHANNEL_PROTOCOL, InData),
-	     sizeofmember(ULTRA_CONSOLE_CHANNEL_PROTOCOL, InData), seq);
-	visorchannel_dump_section
-	    (devdata->dev->visorchannel, "OutData",
-	     offsetof(ULTRA_CONSOLE_CHANNEL_PROTOCOL, OutData),
-	     sizeofmember(ULTRA_CONSOLE_CHANNEL_PROTOCOL, OutData), seq);
-}
-
-static void
-visorserial_show_driver_info(struct seq_file *seq)
-{
-	char *p = lxcon_get_early_buffer();
-
-	seq_printf(seq, "Version=%s\n", VERSION);
-	seq_printf(seq, "Console_write_bytes=%lu\n",
-		   visorserial_console_write_bytes);
-	seq_printf(seq, "Console_dropped_bytes=%lu\n",
-		   visorserial_console_dropped_bytes);
-	seq_puts(seq, "    -*-*-*-*-*- begin console buffer -*-*-*-*-*-\n");
-	if (p)
-		while (*p)
-			seq_printf(seq, "%c", *(p++));
-	seq_puts(seq, "\n");
-	seq_puts(seq, "    -*-*-*-*-*-  end  console buffer -*-*-*-*-*-\n");
+	if (serial_ready_to_read(filedata))
+			return POLLIN | POLLRDNORM;
+	return 0;
 }
 
 module_param_named(rxtxswap, visorserial_rxtxswap, int, S_IRUGO);

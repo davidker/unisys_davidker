@@ -18,7 +18,6 @@
 #ifndef __LINUXSERIAL_H__
 #define __LINUXSERIAL_H__
 
-#include "uniklog.h"
 #include "timskmod.h"
 
 /* struct linux_serial is an opaque structure to users.

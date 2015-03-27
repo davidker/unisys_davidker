@@ -161,7 +161,7 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		op_data->op_lease_handle = och->och_lease_handle;
 		op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
 	}
-	epoch_close = (op_data->op_flags & MF_EPOCH_CLOSE);
+	epoch_close = op_data->op_flags & MF_EPOCH_CLOSE;
 	rc = md_close(md_exp, op_data, och->och_mod, &req);
 	if (rc == -EAGAIN) {
 		/* This close must have the epoch closed. */
@@ -197,6 +197,7 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 	}
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
 		struct mdt_body *body;
+
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
 		if (!(body->valid & OBD_MD_FLRELEASED))
 			rc = -EBUSY;
@@ -269,7 +270,7 @@ static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
 	int lockmode;
 	__u64 flags = LDLM_FL_BLOCK_GRANTED | LDLM_FL_TEST_LOCK;
 	struct lustre_handle lockh;
-	ldlm_policy_data_t policy = {.l_inodebits={MDS_INODELOCK_OPEN}};
+	ldlm_policy_data_t policy = {.l_inodebits = {MDS_INODELOCK_OPEN}};
 	int rc = 0;
 
 	/* clear group lock, if present */
@@ -692,7 +693,7 @@ restart:
 out_och_free:
 	if (rc) {
 		if (och_p && *och_p) {
-			OBD_FREE(*och_p, sizeof (struct obd_client_handle));
+			OBD_FREE(*och_p, sizeof(struct obd_client_handle));
 			*och_p = NULL; /* OBD_FREE writes some magic there */
 			(*och_usecount)--;
 		}
@@ -1552,6 +1553,11 @@ ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg)
 	struct ll_file_data    *fd = LUSTRE_FPRIVATE(file);
 	struct ccc_grouplock    grouplock;
 	int		     rc;
+
+	if (arg == 0) {
+		CWARN("group id for group lock must not be 0\n");
+		return -EINVAL;
+	}
 
 	if (ll_file_nolock(file))
 		return -EOPNOTSUPP;
@@ -2816,7 +2822,7 @@ int ll_have_md_lock(struct inode *inode, __u64 *bits,  ldlm_mode_t l_req_mode)
 	int i;
 
 	if (!inode)
-	       return 0;
+		return 0;
 
 	fid = &ll_i2info(inode)->lli_fid;
 	CDEBUG(D_INFO, "trying to match res "DFID" mode %s\n", PFID(fid),
@@ -2907,8 +2913,8 @@ static int __ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
 			oit.it_op = IT_LOOKUP;
 
 		/* Call getattr by fid, so do not provide name at all. */
-		op_data = ll_prep_md_op_data(NULL, dentry->d_inode,
-					     dentry->d_inode, NULL, 0, 0,
+		op_data = ll_prep_md_op_data(NULL, inode,
+					     inode, NULL, 0, 0,
 					     LUSTRE_OPC_ANY, NULL);
 		if (IS_ERR(op_data))
 			return PTR_ERR(op_data);
@@ -2926,7 +2932,7 @@ static int __ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
 			goto out;
 		}
 
-		rc = ll_revalidate_it_finish(req, &oit, dentry);
+		rc = ll_revalidate_it_finish(req, &oit, inode);
 		if (rc != 0) {
 			ll_intent_release(&oit);
 			goto out;
@@ -2939,7 +2945,7 @@ static int __ll_inode_revalidate(struct dentry *dentry, __u64 ibits)
 		if (!dentry->d_inode->i_nlink)
 			d_lustre_invalidate(dentry, 0);
 
-		ll_lookup_finish_locks(&oit, dentry);
+		ll_lookup_finish_locks(&oit, inode);
 	} else if (!ll_have_md_lock(dentry->d_inode, &ibits, LCK_MINMODE)) {
 		struct ll_sb_info *sbi = ll_i2sbi(dentry->d_inode);
 		u64 valid = OBD_MD_FLGETATTR;
@@ -3228,6 +3234,7 @@ void *ll_iocontrol_register(llioc_callback_t cb, int count, unsigned int *cmd)
 
 	return in_data;
 }
+EXPORT_SYMBOL(ll_iocontrol_register);
 
 void ll_iocontrol_unregister(void *magic)
 {
@@ -3252,8 +3259,6 @@ void ll_iocontrol_unregister(void *magic)
 
 	CWARN("didn't find iocontrol register block with magic: %p\n", magic);
 }
-
-EXPORT_SYMBOL(ll_iocontrol_register);
 EXPORT_SYMBOL(ll_iocontrol_unregister);
 
 static enum llioc_iter

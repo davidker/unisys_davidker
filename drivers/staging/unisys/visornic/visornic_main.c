@@ -21,7 +21,6 @@
  * state to go RUNNING.
  */
 
-#include "uniklog.h"
 #include "diagnostics/appos_subsystems.h"
 #include "timskmod.h"
 #include "globals.h"
@@ -512,18 +511,12 @@ static ssize_t enable_ints_write(struct file *file,
 		return -EINVAL;
 
 	buf[count] = '\0';
-	if (copy_from_user(buf, buffer, count)) {
-		LOGERR("copy_from_user_failed.\n");
+	if (copy_from_user(buf, buffer, count))
 		return -EFAULT;
-	}
 
 	i = kstrtoint(buf, 10, &new_value);
-
-	if (i != 0) {
-		LOGERR("Failed to scan value for enable_ints, buf<<%.*s>>",
-		       (int)count, buf);
+	if (i != 0)
 		return -EFAULT;
-	}
 
 	/* set all counts to new_value usually 0 */
 	for (i = 0; i < VISORNICSOPENMAX; i++) {
@@ -609,13 +602,9 @@ alloc_rcv_buf(struct net_device *netdev)
  * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
  * is large enough to hold 1514.
  */
-	DBGINF("netdev->name <<%s>>:  allocating skb len:%d\n", netdev->name,
-	       RCVPOST_BUF_SIZE);
 	skb = alloc_skb(RCVPOST_BUF_SIZE, GFP_ATOMIC | __GFP_NOWARN);
-	if (!skb) {
-		LOGVER("**** alloc_skb failed\n");
+	if (!skb)
 		return NULL;
-	}
 	skb->dev = netdev;
 	skb->len = RCVPOST_BUF_SIZE;
 	/* current value of mtu doesn't come into play here; large
@@ -638,11 +627,7 @@ post_skb(struct uiscmdrsp *cmdrsp,
 	cmdrsp->net.rcvpost.frag.pi_len = skb->len;
 	cmdrsp->net.rcvpost.unique_num = devdata->uniquenum;
 
-	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) > PI_PAGE_SIZE) {
-		LOGERRNAME(devdata->netdev,
-			   "**** pi_off:0x%x pi_len:%d SPAN ACROSS A PAGE\n",
-			   cmdrsp->net.rcvpost.frag.pi_off, skb->len);
-	} else {
+	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) <= PI_PAGE_SIZE) {
 		cmdrsp->net.type = NET_RCV_POST;
 		cmdrsp->cmdtype = CMD_NET_TYPE;
 		visorchannel_signalinsert(devdata->dev->visorchannel,
@@ -974,13 +959,8 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 		 */
 		devdata->chstat.reject_count++;
 		if (!devdata->queuefullmsg_logged &&
-		    ((devdata->chstat.reject_count & 0x3ff) == 1)) {
+		    ((devdata->chstat.reject_count & 0x3ff) == 1))
 			devdata->queuefullmsg_logged = 1;
-			LOGINFNAME(devdata->netdev, "**** REJECTING NEX_XMIT - rejected count=%ld chstat.sent_xmit=%lu chstat.got_xmit_done=%lu\n",
-				   devdata->chstat.reject_count,
-				   devdata->chstat.sent_xmit,
-				   devdata->chstat.got_xmit_done);
-		}
 		netif_stop_queue(netdev);
 		spin_unlock_irqrestore(&devdata->priv_lock, flags);
 		devdata->busy_cnt++;
@@ -1158,8 +1138,6 @@ repost_return(
 	int status = 0;
 
 	copy = cmdrsp->net.rcv;
-	LOGVER("REPOST_RETURN: realloc rcv skbs to replace:%d rcvbufs\n",
-	       copy.numrcvbufs);
 	switch (copy.numrcvbufs) {
 	case 0:
 		devdata->n_rcv0++;
@@ -1179,8 +1157,6 @@ repost_return(
 			if (devdata->rcvbuf[i] != copy.rcvbuf[cc])
 				continue;
 
-			LOGVER("REPOST_RETURN: orphaning old rcvbuf[%d]:%p cc=%d",
-			       i, devdata->rcvbuf[i], cc);
 			if ((skb) && devdata->rcvbuf[i] == skb) {
 				devdata->found_repost_rcvbuf_cnt++;
 				found_skb = 1;
@@ -1188,34 +1164,24 @@ repost_return(
 			}
 			devdata->rcvbuf[i] = alloc_rcv_buf(netdev);
 			if (!devdata->rcvbuf[i]) {
-				LOGVER("**** %s FAILED to reallocate new rcv buf - no REPOST, found_skb=%d, cc=%d, i=%d\n",
-				       netdev->name, found_skb, cc, i);
 				devdata->num_rcv_bufs_could_not_alloc++;
 				devdata->alloc_failed_in_repost_rtn_cnt++;
 				status = -1;
 				break;
 			}
-			LOGVER("REPOST_RETURN: reposting new rcvbuf[%d]:%p\n",
-			       i, devdata->rcvbuf[i]);
 			post_skb(cmdrsp, devdata, devdata->rcvbuf[i]);
 			numreposted++;
 			break;
 		}
 	}
-	LOGVER("REPOST_RETURN: num rcvbufs posted:%d\n", numreposted);
 	if (numreposted != copy.numrcvbufs) {
-		LOGVER("**** %s FAILED to repost all the rcv bufs; numreposted:%d rcv.numrcvbufs:%d\n",
-		       netdev->name, numreposted, copy.numrcvbufs);
 		devdata->n_repost_deficit++;
 		status = -1;
 	}
 	if (skb) {
 		if (found_skb) {
-			LOGVER("REPOST_RETURN: skb is %p - freeing it", skb);
 			kfree_skb(skb);
 		} else {
-			LOGERRNAME(devdata->netdev, "%s REPOST_RETURN: skb %p NOT found in rcvbuf list!!",
-				   netdev->name, skb);
 			status = -3;
 			devdata->bad_rcv_buf++;
 		}
@@ -1282,11 +1248,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		 * don't process it unless we're in enable mode and until
 		 * we've gotten an ACK saying the other end got our RCV enable
 		 */
-		LOGERRNAME(devdata->netdev,
-			   "%s dropping packet - perhaps old\n", netdev->name);
 		spin_unlock_irqrestore(&devdata->priv_lock, flags);
-		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
-			LOGERRNAME(devdata->netdev, "repost_return failed");
+		repost_return(cmdrsp, devdata, skb, netdev);
 		return;
 	}
 
@@ -1304,12 +1267,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	 */
 	if (skb->len > RCVPOST_BUF_SIZE) {	/* do PRECAUTIONARY check */
 		if (cmdrsp->net.rcv.numrcvbufs < 2) {
-			LOGERRNAME(devdata->netdev, "**** %s Something is wrong; rcv_done_len:%d > RCVPOST_BUF_SIZE:%d but numrcvbufs:%d < 2\n",
-				   netdev->name, skb->len, RCVPOST_BUF_SIZE,
-				   cmdrsp->net.rcv.numrcvbufs);
 			if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
-				LOGERRNAME(devdata->netdev,
-					   "repost_return failed");
+				dev_err(&devdata->netdev->dev, "repost_return failed");
 			return;
 		}
 		/* length rcvd is greater than firstfrag in this skb rcv buf  */
@@ -1317,18 +1276,13 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		skb->data_len = skb->len - RCVPOST_BUF_SIZE;	/* amount that
 								   will be in
 								   frag_list */
-		DBGINF("len:%d data:%d\n", skb->len, skb->data_len);
 	} else {
 		/*
 		 * data fits in this skb - no chaining - do PRECAUTIONARY check
 		 */
 		if (cmdrsp->net.rcv.numrcvbufs != 1) {	/* should be 1 */
-			LOGERRNAME(devdata->netdev, "**** %s Something is wrong; rcv_done_len:%d <= RCVPOST_BUF_SIZE:%d but numrcvbufs:%d != 1\n",
-				   netdev->name, skb->len, RCVPOST_BUF_SIZE,
-				   cmdrsp->net.rcv.numrcvbufs);
 			if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
-				LOGERRNAME(devdata->netdev,
-					   "repost_return failed");
+				dev_err(&devdata->netdev->dev, "repost_return failed");
 			return;
 		}
 		skb->tail += skb->len;
@@ -1346,10 +1300,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	 * - do PRECAUTIONARY check
 	 */
 	if (cmdrsp->net.rcv.rcvbuf[0] != skb) {
-		LOGERRNAME(devdata->netdev, "**** %s Something is wrong; rcvbuf[0]:%p != skb:%p\n",
-			   netdev->name, cmdrsp->net.rcv.rcvbuf[0], skb);
 		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
-			LOGERRNAME(devdata->netdev, "repost_return failed");
+			dev_err(&devdata->netdev->dev, "repost_return failed");
 		return;
 	}
 
@@ -1360,8 +1312,6 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		     cc < cmdrsp->net.rcv.numrcvbufs; cc++) {
 			curr = (struct sk_buff *)cmdrsp->net.rcv.rcvbuf[cc];
 			curr->next = NULL;
-			DBGINF("chaining skb:%p data:%p to skb:%p data:%p\n",
-			       curr, curr->data, skb, skb->data);
 			if (!prev)	/* start of list- set head */
 				skb_shinfo(skb)->frag_list = curr;
 			else
@@ -1382,23 +1332,24 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 #ifdef DEBUG
 		/* assert skb->len == off */
 		if (skb->len != off) {
-			LOGERRNAME(devdata->netdev, "%s something wrong; skb->len:%d != off:%d\n",
-				   netdev->name, skb->len, off);
+			dev_err(&devdata->netdev->dev,
+				"%s something wrong; skb->len:%d != off:%d\n",
+				netdev->name, skb->len, off);
 		}
 		/* test code */
 		cc = util_copy_fragsinfo_from_skb("rcvchaintest", skb,
 						  RCVPOST_BUF_SIZE,
 						  MAX_PHYS_INFO, testfrags);
-		LOGINFNAME(devdata->netdev, "rcvchaintest returned:%d\n", cc);
 		if (cc != cmdrsp->net.rcv.numrcvbufs) {
-			LOGERRNAME(devdata->netdev, "**** %s Something wrong; rcvd chain length %d different from one we calculated %d\n",
-				   netdev->name, cmdrsp->net.rcv.numrcvbufs,
-				   cc);
+			dev_err(&devdata->netdev->dev,
+				"**** %s Something wrong; rcvd chain length %d different from one we calculated %d\n",
+				netdev->name, cmdrsp->net.rcv.numrcvbufs, cc);
 		}
 		for (i = 0; i < cc; i++) {
-			LOGINFNAME(devdata->netdev, "test:RCVPOST_BUF_SIZE:%d[%d] pfn:%llu off:0x%x len:%d\n",
-				   RCVPOST_BUF_SIZE, i, testfrags[i].pi_pfn,
-				   testfrags[i].pi_off, testfrags[i].pi_len);
+			dev_inf(&devdata->netdev->dev,
+				"test:RCVPOST_BUF_SIZE:%d[%d] pfn:%llu off:0x%x len:%d\n",
+				RCVPOST_BUF_SIZE, i, testfrags[i].pi_pfn,
+				testfrags[i].pi_off, testfrags[i].pi_len);
 		}
 #endif
 	}
@@ -1410,38 +1361,23 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 
 	eth = eth_hdr(skb);
 
-	DBGINF("%d Src:%02x:%02x:%02x:%02x:%02x:%02x Dest:%02x:%02x:%02x:%02x:%02x:%02x proto:%x\n",
-	       skb->pkt_type, eth->h_source[0], eth->h_source[1],
-	       eth->h_source[2], eth->h_source[3], eth->h_source[4],
-	       eth->h_source[5], eth->h_dest[0], eth->h_dest[1], eth->h_dest[2],
-	       eth->h_dest[3], eth->h_dest[4], eth->h_dest[5], eth->h_proto);
-
 	skb->csum = 0;
 	skb->ip_summed = CHECKSUM_NONE;	/* trust me, the checksum has
 					   been verified */
 
 	do {
-		if (netdev->flags & IFF_PROMISC) {
-			DBGINF("IFF_PROMISC is set.\n");
+		if (netdev->flags & IFF_PROMISC)
 			break;	/* accept all packets */
-		}
-		if (skb->pkt_type == PACKET_BROADCAST) {
-			DBGINF("packet is broadcast.\n");
-			if (netdev->flags & IFF_BROADCAST) {
-				DBGINF("IFF_BROADCAST is set.\n");
+		if (skb->pkt_type == PACKET_BROADCAST)
+			if (netdev->flags & IFF_BROADCAST)
 				break;	/* accept all broadcast packets */
-			}
-		} else if (skb->pkt_type == PACKET_MULTICAST) {
-			DBGINF("packet is multicast.\n");
-			if (netdev->flags & IFF_ALLMULTI)
-				DBGINF("IFF_ALLMULTI is set.\n");
+
+		else if (skb->pkt_type == PACKET_MULTICAST) {
 			if ((netdev->flags & IFF_MULTICAST) &&
 			    (netdev_mc_count(netdev))) {
 				struct netdev_hw_addr *ha;
 				int found_mc = 0;
 
-				DBGINF("IFF_MULTICAST is set %d.\n",
-				       netdev_mc_count(netdev));
 				/*
 				 * only accept multicast packets that we can
 				 * find in our multicast address list
@@ -1450,47 +1386,35 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 					if (memcmp
 					    (eth->h_dest, ha->addr,
 					     MAX_MACADDR_LEN) == 0) {
-						DBGINF("multicast address is in our list at index:%i.\n", i);
 						found_mc = 1;
 						break;
 					}
 				}
-				if (found_mc) {
+				if (found_mc)
 					break;	/* accept packet, dest
 						   matches a multicast
 						   address */
-				}
 			}
 		} else if (skb->pkt_type == PACKET_HOST) {
-			DBGINF("packet is directed.\n");
 			break;	/* accept packet, h_dest must match vnic
 				   mac address */
 		} else if (skb->pkt_type == PACKET_OTHERHOST) {
 			/* something is not right */
-			LOGERRNAME(devdata->netdev, "**** FAILED to deliver rcv packet to OS; name:%s Dest:%02x:%02x:%02x:%02x:%02x:%02x VNIC:%02x:%02x:%02x:%02x:%02x:%02x\n",
-				   netdev->name, eth->h_dest[0], eth->h_dest[1],
-				   eth->h_dest[2], eth->h_dest[3],
-				   eth->h_dest[4], eth->h_dest[5],
-				   netdev->dev_addr[0], netdev->dev_addr[1],
-				   netdev->dev_addr[2], netdev->dev_addr[3],
-				   netdev->dev_addr[4], netdev->dev_addr[5]);
+			dev_err(&devdata->netdev->dev, "**** FAILED to deliver rcv packet to OS; name:%s Dest:%02x:%02x:%02x:%02x:%02x:%02x VNIC:%02x:%02x:%02x:%02x:%02x:%02x\n",
+				netdev->name, eth->h_dest[0], eth->h_dest[1],
+				eth->h_dest[2], eth->h_dest[3],
+				eth->h_dest[4], eth->h_dest[5],
+				netdev->dev_addr[0], netdev->dev_addr[1],
+				netdev->dev_addr[2], netdev->dev_addr[3],
+				netdev->dev_addr[4], netdev->dev_addr[5]);
 		}
 		/* drop packet - don't forward it up to OS */
-		DBGINF("we cannot indicate this recv pkt! (netdev->flags:0x%04x, skb->pkt_type:0x%02x).\n",
-		       netdev->flags, skb->pkt_type);
 		devdata->n_rcv_packets_not_accepted++;
-		if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
-			LOGERRNAME(devdata->netdev, "repost_return failed");
+		repost_return(cmdrsp, devdata, skb, netdev);
 		return;
 	} while (0);
 
-	DBGINF("Calling netif_rx skb:%p head:%p end:%p data:%p tail:%p len:%d data_len:%d skb->nr_frags:%d\n",
-	       skb, skb->head, skb->end, skb->data, skb->tail, skb->len,
-	       skb->data_len, skb_shinfo(skb)->nr_frags);
-
 	status = netif_rx(skb);
-	if (status != NET_RX_SUCCESS)
-		LOGWRNNAME(devdata->netdev, "status=%d\n", status);
 	/*
 	 * netif_rx returns various values, but "in practice most drivers
 	 * ignore the return value
@@ -1502,8 +1426,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	 * kernel code, so we shouldn't free it. but we should repost a
 	 * new rcv buffer.
 	 */
-	if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
-		LOGVER("repost_return failed");
+	repost_return(cmdrsp, devdata, skb, netdev);
 }
 
 static struct visornic_devdata *
@@ -1511,10 +1434,8 @@ devdata_initialize(struct visornic_devdata *devdata, struct visor_device *dev)
 {
 	int devno = -1;
 
-	if (!devdata) {
-		ERRDRV("allocation of visornic_devdata failed\n");
+	if (!devdata)
 		return NULL;
-	}
 	memset(devdata, '\0', sizeof(struct visornic_devdata));
 	spin_lock(&dev_no_pool_lock);
 	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
@@ -1523,7 +1444,6 @@ devdata_initialize(struct visornic_devdata *devdata, struct visor_device *dev)
 	if (devno == MAXDEVICES)
 		devno = -1;
 	if (devno < 0) {
-		ERRDRV("unknown device\n");
 		kfree(devdata);
 		return NULL;
 	}
@@ -1543,7 +1463,6 @@ static void devdata_release(struct kref *mykref)
 	struct visornic_devdata *devdata =
 		container_of(mykref, struct visornic_devdata, kref);
 
-	INFODRV("%s", __func__);
 	spin_lock(&dev_no_pool_lock);
 	clear_bit(devdata->devno, dev_no_pool);
 	spin_unlock(&dev_no_pool_lock);
@@ -1551,7 +1470,6 @@ static void devdata_release(struct kref *mykref)
 	list_del(&devdata->list_all);
 	spin_unlock(&lock_all_devices);
 	kfree(devdata);
-	INFODRV("%s finished", __func__);
 }
 
 static irqreturn_t
@@ -1605,17 +1523,6 @@ send_rcv_posts_if_needed(struct visornic_devdata *devdata)
 		}
 	}
 	devdata->num_rcv_bufs_could_not_alloc -= rcv_bufs_allocated;
-	if (devdata->num_rcv_bufs_could_not_alloc > 0) {
-		/*
-		 * this path means you failed to alloc an skb in the
-		 * normal path, and you are trying again later, and
-		 * it still fails.
-		 */
-		LOGVER("attempted to recover buffers which could not be allocated and failed");
-		LOGVER("rcv_bufs_allocated=%d, num_rcv_bufs_could_not_alloc=%d",
-		       rcv_bufs_allocated,
-		       devdata->num_rcv_bufs_could_not_alloc);
-	}
 }
 
 static void
@@ -1635,28 +1542,20 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 
 		switch (cmdrsp->net.type) {
 		case NET_RCV:
-			DBGINF("Got NET_RCV\n");
 			devdata->chstat.got_rcv++;
 			/* process incoming packet */
 			visornic_rx(cmdrsp);
 			break;
 		case NET_XMIT_DONE:
-			DBGINF("Got NET_XMIT_DONE %p\n", cmdrsp->net.buf);
 			spin_lock_irqsave(&devdata->priv_lock, flags);
 			devdata->chstat.got_xmit_done++;
-			if (cmdrsp->net.xmtdone.xmt_done_result) {
-				LOGERRNAME(devdata->netdev,
-					   "XMIT_DONE failure buf:%p\n",
-					   cmdrsp->net.buf);
+			if (cmdrsp->net.xmtdone.xmt_done_result)
 				devdata->chstat.xmit_fail++;
-			}
 			/* only call queue wake if we stopped it */
 			netdev = ((struct sk_buff *)cmdrsp->net.buf)->dev;
 			/* ASSERT netdev == vnicinfo->netdev; */
-			if (netdev != devdata->netdev) {
-				LOGERRNAME(devdata->netdev, "NET_XMIT_DONE something wrong; devdata->netdev:%p != cmdrsp->net.buf)->dev:%p\n",
-					   devdata->netdev, netdev);
-			} else if (netif_queue_stopped(netdev)) {
+			if ((netdev == devdata->netdev) &&
+			    netif_queue_stopped(netdev)) {
 				/*
 				 * check to see if we have crossed
 				 * the lower watermark for
@@ -1685,9 +1584,6 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			kfree_skb(cmdrsp->net.buf);
 			break;
 		case NET_RCV_ENBDIS_ACK:
-			DBGINF("Got NET_RCV_ENBDIS_ACK on:%p\n",
-			       (struct net_device *)
-			       cmdrsp->net.enbdis.context);
 			devdata->chstat.got_enbdisack++;
 			netdev = (struct net_device *)
 			cmdrsp->net.enbdis.context;
@@ -1705,8 +1601,6 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			}
 			break;
 		case NET_CONNECT_STATUS:
-			DBGINF("NET_CONNECT_STATUS, enable=:%d\n",
-			       cmdrsp->net.enbdis.enable);
 			netdev = devdata->netdev;
 			if (cmdrsp->net.enbdis.enable == 1) {
 				spin_lock_irqsave(&devdata->priv_lock, flags);
@@ -1725,9 +1619,6 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			}
 			break;
 		default:
-			LOGERRNAME(devdata->netdev,
-				   "Invalid net type:%d in cmdrsp\n",
-				   cmdrsp->net.type);
 			break;
 		}
 		/* cmdrsp is now available for reuse  */
@@ -1785,16 +1676,17 @@ static int visornic_probe(struct visor_device *dev)
 	u64 mask;
 	u64 features;
 
-	INFODRV("%s", __func__);
+	pr_err("alloc_etherdev");
 	netdev = alloc_etherdev(sizeof(struct visornic_devdata));
-	if (!netdev) {
-		LOGERR("***** FAILED to alloc etherdev\n");
+	if (!netdev)
 		return -ENOMEM;
-	}
+
+	pr_err("setup netdev");
 	netdev->netdev_ops = &visornic_dev_ops;
 	netdev->watchdog_timeo = VISORNIC_XMIT_TIMEOUT;
 
 	/* Get MAC adddress from channel and read it into the device. */
+	pr_err("visorbus_read_channel");
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.macaddr);
 	visorbus_read_channel(dev, channel_offset, &netdev->dev_addr,
@@ -1802,6 +1694,7 @@ static int visornic_probe(struct visor_device *dev)
 	netdev->addr_len = MAX_MACADDR_LEN;
 	netdev->dev.parent = &dev->device;
 
+	pr_err("devdata_initialize");
 	devdata = devdata_initialize(netdev_priv(netdev), dev);
 	if (!devdata)
 		return -ENOMEM;
@@ -1812,11 +1705,13 @@ static int visornic_probe(struct visor_device *dev)
 	devdata->enabled = 0; /* not yet */
 	atomic_set(&devdata->usage, 1);
 
+	pr_err("visorchipset_get_device_info");
 	visorchipset_get_device_info(dev->chipset_bus_no,
 				     dev->chipset_dev_no,
 				     devdata->dev_chipset);
 
 	/* Setup rcv bufs */
+	pr_err("visorbus_read_channel");
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.num_rcv_bufs);
 	visorbus_read_channel(dev, channel_offset, &devdata->num_rcv_bufs, 4);
@@ -1835,6 +1730,7 @@ static int visornic_probe(struct visor_device *dev)
 	devdata->lower_threshold_net_xmits =
 		max(1, devdata->max_outstanding_net_xmits / 2);
 
+	pr_err("skb_queue_head_init");
 	skb_queue_head_init(&devdata->xmitbufhead);
 
 	/* create a cmdrsp we can use to post and unpost rcv buffers */
@@ -1888,7 +1784,6 @@ static int visornic_probe(struct visor_device *dev)
 		free_netdev(netdev);
 		return err;
 	}
-	INFODRV("%s finished", __func__);
 	return 0;
 }
 
@@ -1904,22 +1799,16 @@ static void visornic_remove(struct visor_device *dev)
 {
 	struct visornic_devdata *devdata = visor_get_drvdata(dev);
 
-	INFODRV("%s", __func__);
-	if (!devdata) {
-		ERRDRV("no devdata in %s", __func__);
+	if (!devdata)
 		return;
-	}
 	visor_set_drvdata(dev, NULL);
 	host_side_disappeared(devdata);
 	kref_put(&devdata->kref, devdata_release);
-
-	INFODRV("%s finished", __func__);
 }
 
 static int visornic_pause(struct visor_device *dev,
 			  VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "paused");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -1927,7 +1816,6 @@ static int visornic_pause(struct visor_device *dev,
 static int visornic_resume(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
-	INFODEV(dev_name(&dev->device), "resumed");
 	complete_func(dev, 0);
 	return 0;
 }
@@ -1941,46 +1829,49 @@ static void visornic_cleanup_guts(void)
 
 static int visornic_init(void)
 {
-	INFODRV("driver version %s loaded", VERSION);
-
 	/* DAK -- ASSERTS were here, RCVPOST_BUF_SIZE < 4K &
 	   RCVPOST_BUF_SIZE < ETH_HEADER_SIZE.  We own these, why do we
 	   need to assert?  No one is going to change the headers and if
 	   they do oh well
 	*/
 	/* create workqueue for serverdown completion */
+	pr_err("create_singlethread_workqueue -- visornic_serverdown");
 	visornic_serverdown_workqueue =
 		create_singlethread_workqueue("visornic_serverdown");
 	if (!visornic_serverdown_workqueue)
 		return -1;
 
-	/* creaet workqueue for tx timeout reset */
+	/* create workqueue for tx timeout reset */
+	pr_err("create_singlethread_workqueue -- timeout_reset");
 	visornic_timeout_reset_workqueue =
 		create_singlethread_workqueue("visornic_timeout_reset");
 	if (!visornic_timeout_reset_workqueue)
 		return -1;
 
+	pr_err("debugfs_create_dir");
 	visornic_debugfs_dir = debugfs_create_dir("visornic", NULL);
 	debugfs_create_file("info", S_IRUSR, visornic_debugfs_dir, NULL,
 			    &debugfs_info_fops);
 	debugfs_create_file("enable_ints", S_IWUSR, visornic_debugfs_dir,
 			    NULL, &debugfs_enable_ints_fops);
 
+	pr_err("spin_lock_init");
 	spin_lock_init(&dev_no_pool_lock);
+	pr_err("dev_no_pool");
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
 	if (!dev_no_pool) {
-		ERRDRV("Unable to create dev_no_pool");
 		visornic_cleanup_guts();
 		return -1;
 	}
+	pr_err("visorbus_register_visor_driver");
 	visorbus_register_visor_driver(&visornic_driver);
+	pr_err("visornic_init: complete");
 	return 0;
 }
 
 static void visornic_cleanup(void)
 {
 	visornic_cleanup_guts();
-	INFODRV("driver unloaded");
 }
 
 module_init(visornic_init);

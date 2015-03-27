@@ -214,7 +214,6 @@ static void usbduxsigma_ai_handle_urb(struct comedi_device *dev,
 	struct usbduxsigma_private *devpriv = dev->private;
 	struct comedi_async *async = s->async;
 	struct comedi_cmd *cmd = &async->cmd;
-	unsigned int dio_state;
 	uint32_t val;
 	int ret;
 	int i;
@@ -222,9 +221,6 @@ static void usbduxsigma_ai_handle_urb(struct comedi_device *dev,
 	devpriv->ai_counter--;
 	if (devpriv->ai_counter == 0) {
 		devpriv->ai_counter = devpriv->ai_timer;
-
-		/* get the state of the dio pins to allow external trigger */
-		dio_state = be32_to_cpu(devpriv->in_buf[0]);
 
 		/* get the data from the USB bus and hand it over to comedi */
 		for (i = 0; i < cmd->chanlist_len; i++) {
@@ -247,9 +243,8 @@ static void usbduxsigma_ai_handle_urb(struct comedi_device *dev,
 		urb->dev = comedi_to_usb_dev(dev);
 		ret = usb_submit_urb(urb, GFP_ATOMIC);
 		if (ret < 0) {
-			dev_err(dev->class_dev,
-				"%s: urb resubmit failed (%d)\n",
-				__func__, ret);
+			dev_err(dev->class_dev, "urb resubmit failed (%d)\n",
+				ret);
 			if (ret == -EL2NSYNC)
 				dev_err(dev->class_dev,
 					"buggy USB host controller or bug in IRQ handler\n");
@@ -296,8 +291,8 @@ static void usbduxsigma_ai_urb_complete(struct urb *urb)
 
 	default:
 		/* a real error */
-		dev_err(dev->class_dev, "%s: non-zero urb status (%d)\n",
-			__func__, urb->status);
+		dev_err(dev->class_dev, "non-zero urb status (%d)\n",
+			urb->status);
 		async->events |= COMEDI_CB_ERROR;
 		break;
 	}
@@ -390,9 +385,8 @@ static void usbduxsigma_ao_handle_urb(struct comedi_device *dev,
 		urb->iso_frame_desc[0].status = 0;
 		ret = usb_submit_urb(urb, GFP_ATOMIC);
 		if (ret < 0) {
-			dev_err(dev->class_dev,
-				"%s: urb resubmit failed (%d)\n",
-				__func__, ret);
+			dev_err(dev->class_dev, "urb resubmit failed (%d)\n",
+				ret);
 			if (ret == -EL2NSYNC)
 				dev_err(dev->class_dev,
 					"buggy USB host controller or bug in IRQ handler\n");
@@ -427,8 +421,8 @@ static void usbduxsigma_ao_urb_complete(struct urb *urb)
 
 	default:
 		/* a real error */
-		dev_err(dev->class_dev, "%s: non-zero urb status (%d)\n",
-			__func__, urb->status);
+		dev_err(dev->class_dev, "non-zero urb status (%d)\n",
+			urb->status);
 		async->events |= COMEDI_CB_ERROR;
 		break;
 	}
@@ -1075,9 +1069,8 @@ static void usbduxsigma_pwm_urb_complete(struct urb *urb)
 	default:
 		/* a real error */
 		if (devpriv->pwm_cmd_running) {
-			dev_err(dev->class_dev,
-				"%s: non-zero urb status (%d)\n",
-				__func__, urb->status);
+			dev_err(dev->class_dev, "non-zero urb status (%d)\n",
+				urb->status);
 			usbduxsigma_pwm_stop(dev, 0);	/* w/o unlink */
 		}
 		return;
@@ -1091,8 +1084,7 @@ static void usbduxsigma_pwm_urb_complete(struct urb *urb)
 	urb->status = 0;
 	ret = usb_submit_urb(urb, GFP_ATOMIC);
 	if (ret < 0) {
-		dev_err(dev->class_dev, "%s: urb resubmit failed (%d)\n",
-			__func__, ret);
+		dev_err(dev->class_dev, "urb resubmit failed (%d)\n", ret);
 		if (ret == -EL2NSYNC)
 			dev_err(dev->class_dev,
 				"buggy USB host controller or bug in IRQ handler\n");
