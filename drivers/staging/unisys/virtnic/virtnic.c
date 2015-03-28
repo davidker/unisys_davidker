@@ -481,7 +481,7 @@ virtnic_probe(struct virtpci_dev *virtpcidev, const struct pci_device_id *id)
 		 readq(&p_channel_header->ch_space_offset)) +
 	    IOCHAN_FROM_IOPART;
 	vnicinfo->flags_addr = (__force uint64_t __iomem *)&pqhdr->features;
-	vnicinfo->thread_wait_ms = 2;
+	vnicinfo->thread_wait_ms = 1;
 	uisthread_start(&vnicinfo->datachan.chinfo.threadinfo,
 			process_incoming_rsps, &vnicinfo->datachan,
 			"vnic_incoming");
@@ -1989,7 +1989,7 @@ static ssize_t enable_ints_write(struct file *file,
 				uisqueue_interlocked_and(features_addr, mask);
 				mask = ULTRA_IO_CHANNEL_IS_POLLING;
 				uisqueue_interlocked_or(features_addr, mask);
-				vnicinfo->thread_wait_ms = 2;
+				vnicinfo->thread_wait_ms = 1;
 			}
 		}
 }

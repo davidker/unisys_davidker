@@ -213,7 +213,7 @@ struct visornic_devdata {
 	unsigned long long interrupts_disabled;
 	unsigned long long busy_cnt;
 	spinlock_t insertlock; /* spinlock to put items into our queues */
-	spinlock_t priv_lock; /* spinlock to access devdata structures */
+	spinlock_t priv_lock;  /* spinlock to access devdata structures */
 
 	/* flow control counter */
 	unsigned long long flow_control_upper_hits;
@@ -349,8 +349,7 @@ void visor_thread_stop(struct visor_thread_info *thrinfo)
 		thrinfo->id = 0;
 }
 
-/** DebugFS code
- */
+/* DebugFS code */
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
 				 size_t len, loff_t *offset)
 {
@@ -587,9 +586,9 @@ visornic_serverdown(struct visornic_devdata *devdata, u32 state)
 	return 0;
 }
 
-/** List of all visornic_devdata structs,
-  * linked via the list_all member
-  */
+/* List of all visornic_devdata structs,
+ * linked via the list_all member
+ */
 static LIST_HEAD(list_all_devices);
 static DEFINE_SPINLOCK(lock_all_devices);
 
@@ -597,11 +596,11 @@ static struct sk_buff *
 alloc_rcv_buf(struct net_device *netdev)
 {
 	struct sk_buff *skb;
-/*
- * NOTE: the first fragment in each rcv buffer is pointed to by rcvskb->data.
- * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
- * is large enough to hold 1514.
- */
+
+	/* NOTE: the first fragment in each rcv buffer is pointed to by rcvskb->data.
+	 * For now all rcv buffers will be RCVPOST_BUF_SIZE in length, so the firstfrag
+	 * is large enough to hold 1514.
+	 */
 	skb = alloc_skb(RCVPOST_BUF_SIZE, GFP_ATOMIC | __GFP_NOWARN);
 	if (!skb)
 		return NULL;
@@ -611,8 +610,9 @@ alloc_rcv_buf(struct net_device *netdev)
 	 * packets will just end up using multiple rcv buffers all of
 	 * same size
 	 */
-	skb->data_len = 0;      /* dev_alloc_skb already zeroes it out.
-				   for clarification. */
+	skb->data_len = 0;      /* dev_alloc_skb already zeroes it out
+				 * for clarification.
+				 */
 	return skb;
 }
 
@@ -692,8 +692,8 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 		wait += schedule_timeout(msecs_to_jiffies(10));
 		spin_lock_irqsave(&devdata->priv_lock, flags);
 	}
-	/*
-	 * Wait for usage to go to 1 (no other users) before freeing
+
+	/* Wait for usage to go to 1 (no other users) before freeing
 	 * rcv buffers
 	 */
 	if (atomic_read(&devdata->usage) > 1) {
@@ -706,11 +706,11 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 				break;
 		}
 	}
+
 	/* we've set enabled to 0, so we can give up the lock. */
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
-	/*
-	 * Free rcv buffers - other end has automatically unposed them on
+	/* Free rcv buffers - other end has automatically unposed them on
 	 * disable
 	 */
 	for (i = 0; i < devdata->num_rcv_bufs; i++) {
@@ -913,8 +913,8 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	 * linux network subsystems
 	 */
 	len = skb->len;
-	/*
-	 * skb->len is the FULL length of data (including fragmentary portion)
+`
+	/* skb->len is the FULL length of data (including fragmentary portion)
 	 * skb->data_len is the length of the fragment portion in frags
 	 * skb->len - skb->data_len is size of the 1st fragment in skb->data
 	 * calculate the length of the first fragment that skb->data is
@@ -954,8 +954,7 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	     (ULONG_MAX - devdata->chstat.got_xmit_done +
 	      devdata->chstat.sent_xmit >=
 	      devdata->max_outstanding_net_xmits))) {
-		/*
-		 * too many NET_XMITs queued over to IOVM - need to wait
+		/* too many NET_XMITs queued over to IOVM - need to wait
 		 */
 		devdata->chstat.reject_count++;
 		if (!devdata->queuefullmsg_logged &&
@@ -990,13 +989,11 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	/* save off the length of the entire data packet */
 	cmdrsp->net.xmt.len = len;
 
-	/*
-	 * copy ethernet header from first frag into ocmdrsp
+	/* copy ethernet header from first frag into ocmdrsp
 	 * - everything else will be pass in frags & DMA'ed
 	 */
 	memcpy(cmdrsp->net.xmt.ethhdr, skb->data, ETH_HEADER_SIZE);
-	/*
-	 * copy frags info - from skb->data we need to only provide access
+	/* copy frags info - from skb->data we need to only provide access
 	 * beyond eth header
 	 */
 	cmdrsp->net.xmt.num_frags =
@@ -1020,8 +1017,7 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	/* Track the skbs that have been sent to the IOVM for XMIT */
 	skb_queue_head(&devdata->xmitbufhead, skb);
 
-	/*
-	 * set the last transmission start time
+	/* set the last transmission start time
 	 * linux doc says: Do not forget to update netdev->trans_start to
 	 * jiffies after each new tx packet is given to the hardware.
 	 */
@@ -1032,8 +1028,7 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	devdata->net_stats.tx_bytes += skb->len;
 	devdata->chstat.sent_xmit++;
 
-	/*
-	 * check to see if we have hit the high watermark for
+	/* check to see if we have hit the high watermark for
 	 * netif_stop_queue()
 	 */
 	if (((devdata->chstat.sent_xmit >= devdata->chstat.got_xmit_done) &&
@@ -1203,8 +1198,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	struct phys_info testfrags[MAX_PHYS_INFO];
 #endif
 
-/*
- * post new rcv buf to the other end using the cmdrsp we have at hand
+/* post new rcv buf to the other end using the cmdrsp we have at hand
  * post it without holding lock - but we'll use the signal lock to synchronize
  * the queue insert the cmdrsp that contains the net.rcv is the one we are
  * using to repost, so copy the info we need from it.
@@ -1235,8 +1229,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 
 	atomic_inc(&devdata->usage);	/* don't want a close to happen before
 					   we're done here */
-	/*
-	 * set length to how much was ACTUALLY received -
+
+	/* set length to how much was ACTUALLY received -
 	 * NOTE: rcv_done_len includes actual length of data rcvd
 	 * including ethhdr
 	 */
@@ -1244,8 +1238,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 
 	/* test enabled while holding lock */
 	if (!(devdata->enabled && devdata->enab_dis_acked)) {
-		/*
-		 * don't process it unless we're in enable mode and until
+		/* don't process it unless we're in enable mode and until
 		 * we've gotten an ACK saying the other end got our RCV enable
 		 */
 		spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -1255,8 +1248,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
-	/*
-	 * when skb was allocated, skb->dev, skb->data, skb->len and
+	/* when skb was allocated, skb->dev, skb->data, skb->len and
 	 * skb->data_len were setup. AND, data has already put into the
 	 * skb (both first frag and in frags pages)
 	 * NOTE: firstfragslen is the amount of data in skb->data and that
@@ -1277,9 +1269,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 								   will be in
 								   frag_list */
 	} else {
-		/*
-		 * data fits in this skb - no chaining - do PRECAUTIONARY check
-		 */
+		/* data fits in this skb - no chaining - do PRECAUTIONARY check */
 		if (cmdrsp->net.rcv.numrcvbufs != 1) {	/* should be 1 */
 			if (repost_return(cmdrsp, devdata, skb, netdev) < 0)
 				dev_err(&devdata->netdev->dev, "repost_return failed");
@@ -1289,8 +1279,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		skb->data_len = 0;	/* nothing rcvd in frag_list */
 	}
 	off = skb_tail_pointer(skb) - skb->data;
-	/*
-	 * amount we bumped tail by in the head skb
+
+	/* amount we bumped tail by in the head skb
 	 * it is used to calculate the size of each chained skb below
 	 * it is also used to index into bufline to continue the copy
 	 * (for chansocktwopc)
@@ -1317,8 +1307,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 			else
 				prev->next = curr;
 			prev = curr;
-			/*
-			 * should we set skb->len and skb->data_len for each
+
+			/* should we set skb->len and skb->data_len for each
 			 * buffer being chained??? can't hurt!
 			 */
 			currsize =
@@ -1378,8 +1368,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 				struct netdev_hw_addr *ha;
 				int found_mc = 0;
 
-				/*
-				 * only accept multicast packets that we can
+				/* only accept multicast packets that we can
 				 * find in our multicast address list
 				 */
 				netdev_for_each_mc_addr(ha, netdev) {
@@ -1415,8 +1404,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	} while (0);
 
 	status = netif_rx(skb);
-	/*
-	 * netif_rx returns various values, but "in practice most drivers
+	/* netif_rx returns various values, but "in practice most drivers
 	 * ignore the return value
 	 */
 
@@ -1556,8 +1544,7 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			/* ASSERT netdev == vnicinfo->netdev; */
 			if ((netdev == devdata->netdev) &&
 			    netif_queue_stopped(netdev)) {
-				/*
-				 * check to see if we have crossed
+				/* check to see if we have crossed
 				 * the lower watermark for
 				 * netif_wake_queue()
 				 */
@@ -1571,8 +1558,7 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 				    (ULONG_MAX - devdata->chstat.got_xmit_done
 				    + devdata->chstat.sent_xmit <=
 				    devdata->lower_threshold_net_xmits))) {
-					/*
-					 * enough NET_XMITs completed
+					/* enough NET_XMITs completed
 					 * so can restart netif queue
 					 */
 					netif_wake_queue(netdev);
@@ -1646,8 +1632,7 @@ process_incoming_rsps(void *v)
 					     &devdata->interrupt_rcvd) == 1),
 				msecs_to_jiffies(devdata->thread_wait_ms));
 
-		/*
-		 * periodically check to see if there are any rcf bufs which
+		/* periodically check to see if there are any rcf bufs which
 		 * need to get sent to the IOSP. This can only happen if
 		 * we run out of memory when trying to allocate skbs.
 		 */
@@ -1830,10 +1815,10 @@ static void visornic_cleanup_guts(void)
 static int visornic_init(void)
 {
 	/* DAK -- ASSERTS were here, RCVPOST_BUF_SIZE < 4K &
-	   RCVPOST_BUF_SIZE < ETH_HEADER_SIZE.  We own these, why do we
-	   need to assert?  No one is going to change the headers and if
-	   they do oh well
-	*/
+	 * RCVPOST_BUF_SIZE < ETH_HEADER_SIZE.  We own these, why do we
+	 * need to assert?  No one is going to change the headers and if
+	 * they do oh well
+	 */
 	/* create workqueue for serverdown completion */
 	pr_err("create_singlethread_workqueue -- visornic_serverdown");
 	visornic_serverdown_workqueue =

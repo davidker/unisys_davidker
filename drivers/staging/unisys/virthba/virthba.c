@@ -1303,7 +1303,7 @@ static ssize_t enable_ints_write(struct file *file, const char __user *buffer,
 				uisqueue_interlocked_and(features_addr, mask);
 				mask = ULTRA_IO_CHANNEL_IS_POLLING;
 				uisqueue_interlocked_or(features_addr, mask);
-				rsltq_wait_usecs = 4000;
+				rsltq_wait_usecs = 40;
 			}
 		}
 	}
