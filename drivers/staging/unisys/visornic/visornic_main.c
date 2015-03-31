@@ -162,7 +162,7 @@ struct visornic_devdata {
 					 * IOPART
 					 */
 	struct visor_device *dev;
-	struct visorchipset_device_info *dev_chipset; /* IRQ Information */
+	struct visorchipset_device_info dev_chipset; /* IRQ Information */
 	/* lock for dev */
 	struct rw_semaphore lock_visor_dev;
 	char name[99];
@@ -520,7 +520,7 @@ static ssize_t enable_ints_write(struct file *file,
 	/* set all counts to new_value usually 0 */
 	for (i = 0; i < VISORNICSOPENMAX; i++) {
 		if (num_visornic_open[i]) {
-			devdata = num_visornic_open[i];
+			devdata = netdev_priv(num_visornic_open[i]);
 			/* TODO update features bit in channel */
 		}
 	}
@@ -913,7 +913,7 @@ visornic_xmit(struct sk_buff *skb, struct net_device *netdev)
 	 * linux network subsystems
 	 */
 	len = skb->len;
-`
+
 	/* skb->len is the FULL length of data (including fragmentary portion)
 	 * skb->data_len is the length of the fragment portion in frags
 	 * skb->len - skb->data_len is size of the 1st fragment in skb->data
@@ -1674,6 +1674,7 @@ static int visornic_probe(struct visor_device *dev)
 	pr_err("visorbus_read_channel");
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.macaddr);
+	pr_err("visorbus_read_channel: vnic.macaddr offset %d", channel_offset);
 	visorbus_read_channel(dev, channel_offset, &netdev->dev_addr,
 			      MAX_MACADDR_LEN);
 	netdev->addr_len = MAX_MACADDR_LEN;
@@ -1693,7 +1694,7 @@ static int visornic_probe(struct visor_device *dev)
 	pr_err("visorchipset_get_device_info");
 	visorchipset_get_device_info(dev->chipset_bus_no,
 				     dev->chipset_dev_no,
-				     devdata->dev_chipset);
+				     &devdata->dev_chipset);
 
 	/* Setup rcv bufs */
 	pr_err("visorbus_read_channel");
@@ -1725,6 +1726,7 @@ static int visornic_probe(struct visor_device *dev)
 		free_netdev(netdev);
 		return -ENOMEM;
 	}
+	pr_err("INIT_WORK");
 	INIT_WORK(&devdata->serverdown_completion,
 		  visornic_serverdown_complete);
 	INIT_WORK(&devdata->timeout_reset, visornic_timeout_reset);
@@ -1732,6 +1734,7 @@ static int visornic_probe(struct visor_device *dev)
 	devdata->server_change_state = false;
 
 	/*set the default mtu */
+	pr_err("default_mtu");
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.mtu);
 	visorbus_read_channel(dev, channel_offset, &netdev->mtu, 4);
@@ -1740,17 +1743,20 @@ static int visornic_probe(struct visor_device *dev)
 	//devdata->intr = virtpcidev->intr;
 
 	/* Let's start our threads to get responses */
+	pr_err("features");
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  channel_header.features);
 	visorbus_read_channel(dev, channel_offset, &features, 8);
 	features |= ULTRA_IO_CHANNEL_IS_POLLING;
 	visorbus_write_channel(dev, channel_offset, &features, 8);
 
+	pr_err("visor_thread_start: process_incoming_rsps");
 	devdata->thread_wait_ms = 2;
 	visor_thread_start(&devdata->threadinfo, process_incoming_rsps,
 			   &devdata, "vnic_incoming");
 
 	/* create debgug/sysfs directories */
+	pr_err("debugfs_create_dir");
 	devdata->eth_debugfs_dir = debugfs_create_dir(netdev->name,
 						      visornic_debugfs_dir);
 	if (!devdata->eth_debugfs_dir) {
@@ -1761,6 +1767,7 @@ static int visornic_probe(struct visor_device *dev)
 		return -ENOMEM;
 	}
 
+	pr_err("register_netdev");
 	err = register_netdev(netdev);
 	if (err) {
 		visor_thread_stop(&devdata->threadinfo);
