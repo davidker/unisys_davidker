@@ -21,9 +21,13 @@
  * state to go RUNNING.
  */
 
+#include <linux/debugfs.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+#include <linux/skbuff.h>
+
 #include "diagnostics/appos_subsystems.h"
 #include "timskmod.h"
-#include "globals.h"
 #include "visorbus.h"
 #include "visorchannel.h"
 #include "visorchipset.h"
@@ -31,15 +35,12 @@
 #include "iochannel.h"
 #include "uisutils.h"
 
-#include <linux/debugfs.h>
-#include <linux/netdevice.h>
-#include <linux/etherdevice.h>
-#include <linux/skbuff.h>
-
 #define VISORNIC_STATS 0
 #define VISORNIC_XMIT_TIMEOUT (5 * HZ)
 #define VISORNIC_INFINITE_RESPONSE_WAIT 0
 #define INTERRUPT_VECTOR_MASK 0x3F
+#define VISORNICSOPENMAX 32
+#define MAXDEVICES     16384
 
 /* MAX_BUF = 64 lines x 32 MAXVNIC x 80 characters
  *         = 163840 bytes ~ 40 pages
@@ -76,10 +77,9 @@ static struct workqueue_struct *visornic_timeout_reset_workqueue;
 /* GUIDS for director channel type supported by this driver.  */
 static struct visor_channeltype_descriptor visornic_channel_types[] = {
 	/* Note that the only channel type we expect to be reported by the
-	 * bus driver is the ULTRAVNIC channel.
+	 * bus driver is the SPAR_VNIC channel.
 	 */
-	{ SPAR_VNIC_CHANNEL_PROTOCOL_UUID,
-	  "ultravnic", 1, ULONG_MAX },
+	{ SPAR_VNIC_CHANNEL_PROTOCOL_UUID, "ultravnic", 1, ULONG_MAX },
 	{ NULL_UUID_LE, NULL, 0, 0 }
 };
 
@@ -88,8 +88,8 @@ static struct visor_channeltype_descriptor visornic_channel_types[] = {
  * is attached or removed.
  */
 static struct visor_driver visornic_driver = {
-	.name = MYDRVNAME,
-	.version = VERSION,
+	.name = __FILE__,
+	.version = "1.0.0.0",
 	.vertag = NULL,
 	.owner = THIS_MODULE,
 	.channel_types = visornic_channel_types,
@@ -237,7 +237,6 @@ struct visornic_devdata {
 	struct chanstat chstat;
 };
 
-#define VISORNICSOPENMAX 32
 /* array of open devices maintained by open() and close() */
 static struct net_device *num_visornic_open[VISORNICSOPENMAX];
 
@@ -286,24 +285,22 @@ visor_copy_fragsinfo_from_skb(unsigned char *calling_ctx, struct sk_buff *skb,
 		offset += size;
 		count++;
 	}
-	if (!numfrags)
-		goto dolist;
+	if (numfrags) {
+		if ((count + numfrags) > frags_max)
+			return -1;
 
-	if ((count + numfrags) > frags_max)
-		return -1;
-
-	for (ii = 0; ii < numfrags; ii++) {
-		count = add_physinfo_entries(page_to_pfn(
+		for (ii = 0; ii < numfrags; ii++) {
+			count = add_physinfo_entries(page_to_pfn(
 				skb_frag_page(&skb_shinfo(skb)->frags[ii])),
 					      skb_shinfo(skb)->frags[ii].
 					      page_offset,
 					      skb_shinfo(skb)->frags[ii].
 					      size, count, frags_max, frags);
-		if (!count)
-			return -1;
+			if (!count)
+				return -1;
+		}
 	}
-
-dolist: if (skb_shinfo(skb)->frag_list) {
+	if (skb_shinfo(skb)->frag_list) {
 		struct sk_buff *skbinlist;
 		int c;
 
@@ -630,6 +627,8 @@ post_skb(struct uiscmdrsp *cmdrsp,
 	if ((cmdrsp->net.rcvpost.frag.pi_off + skb->len) <= PI_PAGE_SIZE) {
 		cmdrsp->net.type = NET_RCV_POST;
 		cmdrsp->cmdtype = CMD_NET_TYPE;
+		pr_err("%s post_skb: visorchannel_signal_insert", 
+			__FILE__);
 		visorchannel_signalinsert(devdata->dev->visorchannel,
 					  IOCHAN_TO_IOPART,
 					  cmdrsp);
@@ -646,6 +645,8 @@ send_enbdis(struct net_device *netdev, int state,
 	devdata->cmdrsp_rcv->net.enbdis.context = netdev;
 	devdata->cmdrsp_rcv->net.type = NET_RCV_ENBDIS;
 	devdata->cmdrsp_rcv->cmdtype = CMD_NET_TYPE;
+	pr_err("%s send_enbdis: visorchannel_signal_insert", 
+		__FILE__);
 	visorchannel_signalinsert(devdata->dev->visorchannel,
 				  IOCHAN_TO_IOPART,
 				  devdata->cmdrsp_rcv);
@@ -1358,11 +1359,11 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	do {
 		if (netdev->flags & IFF_PROMISC)
 			break;	/* accept all packets */
-		if (skb->pkt_type == PACKET_BROADCAST)
+		if (skb->pkt_type == PACKET_BROADCAST) {
 			if (netdev->flags & IFF_BROADCAST)
 				break;	/* accept all broadcast packets */
 
-		else if (skb->pkt_type == PACKET_MULTICAST) {
+		} else if (skb->pkt_type == PACKET_MULTICAST) {
 			if ((netdev->flags & IFF_MULTICAST) &&
 			    (netdev_mc_count(netdev))) {
 				struct netdev_hw_addr *ha;
@@ -1528,6 +1529,8 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 					       cmdrsp))
 			break; /* queue empty */
 
+		pr_err("%s IOCHAN_FROM_IOPART not empty, cmdtype->net.type %d",
+		       __FILE__, cmdrsp->net.type);
 		switch (cmdrsp->net.type) {
 		case NET_RCV:
 			devdata->chstat.got_rcv++;
@@ -1661,25 +1664,22 @@ static int visornic_probe(struct visor_device *dev)
 	u64 mask;
 	u64 features;
 
-	pr_err("alloc_etherdev");
 	netdev = alloc_etherdev(sizeof(struct visornic_devdata));
 	if (!netdev)
 		return -ENOMEM;
 
-	pr_err("setup netdev");
 	netdev->netdev_ops = &visornic_dev_ops;
 	netdev->watchdog_timeo = VISORNIC_XMIT_TIMEOUT;
 
 	/* Get MAC adddress from channel and read it into the device. */
-	pr_err("visorbus_read_channel");
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.macaddr);
-	pr_err("visorbus_read_channel: vnic.macaddr offset %d", channel_offset);
 	visorbus_read_channel(dev, channel_offset, &netdev->dev_addr,
 			      MAX_MACADDR_LEN);
 	netdev->addr_len = MAX_MACADDR_LEN;
 	netdev->dev.parent = &dev->device;
 
+	pr_err("netdev->dev_addr = %pM", &netdev->dev_addr);
 	pr_err("devdata_initialize");
 	devdata = devdata_initialize(netdev_priv(netdev), dev);
 	if (!devdata)
@@ -1688,6 +1688,7 @@ static int visornic_probe(struct visor_device *dev)
 	devdata->interrupt_vector = -1;
 	devdata->netdev = netdev;
 	init_waitqueue_head(&devdata->rsp_queue);
+	spin_lock_init(&devdata->priv_lock);
 	devdata->enabled = 0; /* not yet */
 	atomic_set(&devdata->usage, 1);
 
@@ -1768,7 +1769,7 @@ static int visornic_probe(struct visor_device *dev)
 	}
 
 	pr_err("register_netdev");
-	err = register_netdev(netdev);
+	/* err = register_netdev(netdev);
 	if (err) {
 		visor_thread_stop(&devdata->threadinfo);
 		kfree(devdata->cmdrsp_rcv);
@@ -1776,6 +1777,7 @@ static int visornic_probe(struct visor_device *dev)
 		free_netdev(netdev);
 		return err;
 	}
+	*/
 	return 0;
 }
 
@@ -1872,5 +1874,5 @@ module_exit(visornic_cleanup);
 MODULE_AUTHOR("Unisys");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("sPAR nic driver for sparlinux: ver "
-		   VERSION);
-MODULE_VERSION(VERSION);
+		   "1.0.0.0");
+MODULE_VERSION("1.0.0.0");
