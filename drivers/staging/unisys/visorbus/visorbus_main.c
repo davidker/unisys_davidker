@@ -838,6 +838,14 @@ create_visor_device(struct visorbus_devdata *devdata,
 	dev->device.bus = &visorbus_type;
 	device_initialize(&dev->device);
 	dev->device.release = visorbus_release_device;
+
+	/* bus_id must be a unique name with respect to this bus TYPE
+	 * (NOT bus instance).  That's why we need to include the bus
+	 * number within the name.
+	 */
+	dev_set_name(&dev->device, "vbus%lu:dev%lu",
+		     chipset_bus_no, chipset_dev_no);
+
 	/* keep a reference just for us (now 2) */
 	get_visordev(dev, "create", visorbus_debugref);
 	gotten = TRUE;
@@ -851,13 +859,6 @@ create_visor_device(struct visorbus_devdata *devdata,
 				 DIAG_SEVERITY_ERR);
 		goto away;
 	}
-
-	/* bus_id must be a unique name with respect to this bus TYPE
-	 * (NOT bus instance).  That's why we need to include the bus
-	 * number within the name.
-	 */
-	dev_set_name(&dev->device, "vbus%lu:dev%lu",
-		     chipset_bus_no, chipset_dev_no);
 
 	/*  device_add does this:
 	 *    bus_add_device(dev)

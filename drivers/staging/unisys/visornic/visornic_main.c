@@ -1375,7 +1375,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 				netdev_for_each_mc_addr(ha, netdev) {
 					if (memcmp
 					    (eth->h_dest, ha->addr,
-					     MAX_MACADDR_LEN) == 0) {
+					     ETH_ALEN) == 0) {
 						found_mc = 1;
 						break;
 					}
@@ -1674,12 +1674,12 @@ static int visornic_probe(struct visor_device *dev)
 	/* Get MAC adddress from channel and read it into the device. */
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.macaddr);
-	visorbus_read_channel(dev, channel_offset, &netdev->dev_addr,
-			      MAX_MACADDR_LEN);
-	netdev->addr_len = MAX_MACADDR_LEN;
+	visorbus_read_channel(dev, channel_offset, netdev->dev_addr,
+			      ETH_ALEN);
+	netdev->addr_len = ETH_ALEN;
 	netdev->dev.parent = &dev->device;
 
-	pr_err("netdev->dev_addr = %pM", &netdev->dev_addr);
+	pr_err("netdev->dev_addr = %pM", netdev->dev_addr);
 	pr_err("devdata_initialize");
 	devdata = devdata_initialize(netdev_priv(netdev), dev);
 	if (!devdata)
@@ -1704,6 +1704,7 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_read_channel(dev, channel_offset, &devdata->num_rcv_bufs, 4);
 	devdata->rcvbuf = kmalloc(sizeof(struct sk_buff *) *
 				  devdata->num_rcv_bufs, GFP_ATOMIC);
+	pr_err("kmalloc(num_rcv_bfs) num_rcv_bufs = %d", devdata->num_rcv_bufs);
 	if (!devdata->rcvbuf) {
 		free_netdev(netdev);
 		return -ENOMEM;
@@ -1739,6 +1740,7 @@ static int visornic_probe(struct visor_device *dev)
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.mtu);
 	visorbus_read_channel(dev, channel_offset, &netdev->mtu, 4);
+	pr_err("MTU VALUE = %d\n", netdev->mtu);
 
 	/* TODO: Setup Interrupt information */
 	//devdata->intr = virtpcidev->intr;
@@ -1750,6 +1752,12 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_read_channel(dev, channel_offset, &features, 8);
 	features |= ULTRA_IO_CHANNEL_IS_POLLING;
 	visorbus_write_channel(dev, channel_offset, &features, 8);
+
+
+	// read the value of features and print it again. 
+	visorbus_read_channel(dev, channel_offset, &features, 8);
+	pr_err("Channel Header features: = 0x%x", features);
+
 
 	pr_err("visor_thread_start: process_incoming_rsps");
 	devdata->thread_wait_ms = 2;
@@ -1769,7 +1777,7 @@ static int visornic_probe(struct visor_device *dev)
 	}
 
 	pr_err("register_netdev");
-	/* err = register_netdev(netdev);
+	err = register_netdev(netdev);
 	if (err) {
 		visor_thread_stop(&devdata->threadinfo);
 		kfree(devdata->cmdrsp_rcv);
@@ -1777,7 +1785,6 @@ static int visornic_probe(struct visor_device *dev)
 		free_netdev(netdev);
 		return err;
 	}
-	*/
 	return 0;
 }
 
