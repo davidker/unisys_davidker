@@ -723,7 +723,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 	spin_lock_irqsave(&devdata->priv_lock, flags);
 	while ((timeout == VISORNIC_INFINITE_RESPONSE_WAIT) ||
 	       (wait < timeout)) {
-		if (devdata->n_rcv_packets_not_accepted)
+		if (devdata->enab_dis_acked)
 			break;
 		if (devdata->server_down || devdata->server_change_state) {
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -2070,6 +2070,17 @@ static int visornic_resume(struct visor_device *dev,
 }
 
 /**
+ *	visornic_cleanup_guts	- driver cleanup routine.
+ *
+ *	Called from driver exit or if driver fails to init.
+ */
+static void visornic_cleanup_guts(void) { 
+	visorbus_unregister_visor_driver(&visornic_driver);
+	kfree(dev_no_pool);
+	dev_no_pool = NULL;
+}
+
+/**
  *	visornic_init	- Init function
  *
  *	Init function for the visornic driver. Do initial driver setup
@@ -2125,9 +2136,7 @@ static int visornic_init(void)
  */
 static void visornic_cleanup(void)
 {
-	visorbus_unregister_visor_driver(&visornic_driver);
-	kfree(dev_no_pool);
-	dev_no_pool = NULL;
+	visornic_cleanup_guts();
 }
 
 module_init(visornic_init);
