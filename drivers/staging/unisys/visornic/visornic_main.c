@@ -24,14 +24,10 @@
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
 
-#include "diagnostics/appos_subsystems.h"
-#include "timskmod.h"
 #include "visorbus.h"
 #include "visorchannel.h"
 #include "visorchipset.h"
-#include "controlframework.h"
 #include "iochannel.h"
-#include "uisutils.h"
 
 #define VISORNIC_STATS 0
 #define VISORNIC_XMIT_TIMEOUT (5 * HZ)
@@ -115,11 +111,6 @@ struct chanstat {
 	unsigned long sent_xmit;
 	unsigned long reject_count;
 	unsigned long extra_rcvbufs_sent;
-};
-
-struct datachan {
-	struct chaninfo chinfo;
-	struct chanstat chstat;
 };
 
 struct visornic_devdata {
@@ -1832,7 +1823,6 @@ process_incoming_rsps(void *v)
 	struct uiscmdrsp *cmdrsp = NULL;
 	const int SZ = SIZEOF_CMDRSP;
 
-	UIS_DAEMONIZE("vnic_incoming");
 	cmdrsp = kmalloc(SZ, GFP_ATOMIC);
 	if (!cmdrsp)
 		complete_and_exit(&devdata->threadinfo.has_stopped, 0);
