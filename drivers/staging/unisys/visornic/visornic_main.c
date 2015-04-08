@@ -172,7 +172,6 @@ struct visornic_devdata {
 	unsigned long long interrupts_notme;
 	unsigned long long interrupts_disabled;
 	unsigned long long busy_cnt;
-	//spinlock_t insertlock; /* spinlock to put items into our queues */
 	spinlock_t priv_lock;  /* spinlock to access devdata structures */
 
 	/* flow control counter */
@@ -229,7 +228,7 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 
 	while (firstfraglen) {
 		if (count == frags_max)
-			return -1;
+			return -EINVAL;
 
 		frags[count].pi_pfn =
 			page_to_pfn(virt_to_page(skb->data + offset));
@@ -248,7 +247,7 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 	}
 	if (numfrags) {
 		if ((count + numfrags) > frags_max)
-			return -1;
+			return -EINVAL;
 
 		for (ii = 0; ii < numfrags; ii++) {
 			count = add_physinfo_entries(page_to_pfn(
@@ -258,7 +257,7 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 					      skb_shinfo(skb)->frags[ii].
 					      size, count, frags_max, frags);
 			if (!count)
-				return -1;
+				return -EIO;
 		}
 	}
 	if (skb_shinfo(skb)->frag_list) {
@@ -272,8 +271,8 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 							  skbinlist->data_len,
 							  frags_max - count,
 							  &frags[count]);
-			if (c == -1)
-				return -1;
+			if (c < 0)
+				return c;
 			count += c;
 		}
 	}
@@ -717,7 +716,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 			break;
 		if (devdata->server_down || devdata->server_change_state) {
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
-			return -1;
+			return -EIO;
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
 		spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -857,7 +856,7 @@ visornic_enable_with_timeout(struct net_device *netdev, const int timeout)
 			break;
 		if (devdata->server_down || devdata->server_change_state) {
 			spin_unlock_irqrestore(&devdata->priv_lock, flags);
-			return -1;
+			return -EIO;
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
 		spin_unlock_irqrestore(&devdata->priv_lock, flags);
@@ -868,7 +867,7 @@ visornic_enable_with_timeout(struct net_device *netdev, const int timeout)
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
 	if (!devdata->enab_dis_acked)
-		return -1;
+		return -EIO;
 
 	/* find an open slot in the array to save off VisorNic references
 	 * for debug
@@ -1500,8 +1499,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 	eth = eth_hdr(skb);
 
 	skb->csum = 0;
-	skb->ip_summed = CHECKSUM_NONE;	/* trust me, the checksum has
-					   been verified */
+	skb->ip_summed = CHECKSUM_NONE;
 
 	do {
 		if (netdev->flags & IFF_PROMISC)
@@ -1509,7 +1507,6 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		if (skb->pkt_type == PACKET_BROADCAST) {
 			if (netdev->flags & IFF_BROADCAST)
 				break;	/* accept all broadcast packets */
-
 		} else if (skb->pkt_type == PACKET_MULTICAST) {
 			if ((netdev->flags & IFF_MULTICAST) &&
 			    (netdev_mc_count(netdev))) {
@@ -1537,13 +1534,8 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 				   mac address */
 		} else if (skb->pkt_type == PACKET_OTHERHOST) {
 			/* something is not right */
-			dev_err(&devdata->netdev->dev, "**** FAILED to deliver rcv packet to OS; name:%s Dest:%02x:%02x:%02x:%02x:%02x:%02x VNIC:%02x:%02x:%02x:%02x:%02x:%02x\n",
-				netdev->name, eth->h_dest[0], eth->h_dest[1],
-				eth->h_dest[2], eth->h_dest[3],
-				eth->h_dest[4], eth->h_dest[5],
-				netdev->dev_addr[0], netdev->dev_addr[1],
-				netdev->dev_addr[2], netdev->dev_addr[3],
-				netdev->dev_addr[4], netdev->dev_addr[5]);
+			dev_err(&devdata->netdev->dev, "**** FAILED to deliver rcv packet to OS; name:%s Dest:%pM VNIC:%pM\n",
+				netdev->name, eth->h_dest, netdev->dev_addr);
 		}
 		/* drop packet - don't forward it up to OS */
 		devdata->n_rcv_packets_not_accepted++;
@@ -2062,7 +2054,7 @@ static int visornic_resume(struct visor_device *dev,
 
 	devdata = visor_get_drvdata(dev);
 	if (!devdata)
-		return -1;
+		return -EINVAL;
 
 	netdev = devdata->netdev;
 
@@ -2090,7 +2082,7 @@ static int visornic_resume(struct visor_device *dev,
 		 */
 		send_enbdis(netdev, 1, devdata);
 	} else if (devdata->server_change_state) {
-		return -1;
+		return -EIO;
 	}
 
 	complete_func(dev, 0);
@@ -2128,14 +2120,14 @@ static int visornic_init(void)
 	visornic_serverdown_workqueue =
 		create_singlethread_workqueue("visornic_serverdown");
 	if (!visornic_serverdown_workqueue)
-		return -1;
+		return -ENOMEM;
 
 	/* create workqueue for tx timeout reset */
 	pr_err("create_singlethread_workqueue -- timeout_reset");
 	visornic_timeout_reset_workqueue =
 		create_singlethread_workqueue("visornic_timeout_reset");
 	if (!visornic_timeout_reset_workqueue)
-		return -1;
+		return -ENOMEM;
 
 	pr_err("debugfs_create_dir");
 	visornic_debugfs_dir = debugfs_create_dir("visornic", NULL);
@@ -2150,7 +2142,7 @@ static int visornic_init(void)
 	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
 	if (!dev_no_pool) {
 		visornic_cleanup_guts();
-		return -1;
+		return -ENOMEM;
 	}
 	pr_err("visorbus_register_visor_driver");
 	visorbus_register_visor_driver(&visornic_driver);
