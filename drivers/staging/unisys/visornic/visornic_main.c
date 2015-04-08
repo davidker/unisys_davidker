@@ -568,14 +568,13 @@ visornic_serverdown_complete(struct work_struct *work)
 /**
  *	visornic_serverdown - Command has notified us that IOPARt is down
  *	@devdata: device that is being managed by IOPART
- *	@state:	State we are going too: TODO REMOVE
  *
  *	Schedule the work needed to handle the server down request. Make
  *	sure we haven't already handled the server change state event.
  *	Returns 0 if we scheduled the work, -1 on error.
  */
 static int
-visornic_serverdown(struct visornic_devdata *devdata, u32 state)
+visornic_serverdown(struct visornic_devdata *devdata)
 {
 	struct net_device *netdev = devdata->netdev;
 
@@ -924,7 +923,7 @@ visornic_timeout_reset(struct work_struct *work)
 	return;
 
 call_serverdown:
-	visornic_serverdown(devdata, 0);
+	visornic_serverdown(devdata);
 }
 
 /**
@@ -2047,6 +2046,9 @@ static void visornic_remove(struct visor_device *dev)
 static int visornic_pause(struct visor_device *dev,
 			  VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
+	struct visornic_devdata *devdata = visor_get_drvdata(dev);
+
+	visornic_serverdown(devdata);
 	complete_func(dev, 0);
 	return 0;
 }
@@ -2064,6 +2066,43 @@ static int visornic_pause(struct visor_device *dev,
 static int visornic_resume(struct visor_device *dev,
 			   VISORBUS_STATE_COMPLETE_FUNC complete_func)
 {
+	struct visornic_devdata *devdata;
+	struct net_device *netdev;
+	unsigned long flags;
+
+	devdata = visor_get_drvdata(dev);
+	if (!devdata)
+		return -1;
+
+	netdev = devdata->netdev;
+
+	if (devdata->server_down && !devdata->server_change_state) {
+		devdata->server_change_state = true;
+		/* Must transition channel to ATTACHED state BEFORE
+		 * we can start using the device again.
+		 * TODO: State transitions
+		 */
+		visor_thread_start(&devdata->threadinfo, process_incoming_rsps,
+				   devdata, "vnic_incoming");
+		init_rcv_bufs(netdev, devdata);
+		spin_lock_irqsave(&devdata->priv_lock, flags);
+		devdata->enabled = 1;
+
+		/* Now we're ready, let's send an ENB to uisnic but until
+		 * we get an ACK back from uisnic, we'll drop the packets
+		 */
+		devdata->enab_dis_acked = 0;
+		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+
+		/* send enable and wait for ack - don't hold lock when
+		 * sending enable because if the queue if sull, insert
+		 * might sleep.
+		 */
+		send_enbdis(netdev, 1, devdata);
+	} else if (devdata->server_change_state) {
+		return -1;
+	}
+
 	complete_func(dev, 0);
 	return 0;
 }
