@@ -1784,7 +1784,6 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
 			if (devdata->server_down &&
 			    devdata->server_change_state) {
 				/* Inform Linux that the link is up */
-				pr_err("%s %d netif_wake_queue\n", __func__, __LINE__);
 				devdata->server_down = false;
 				devdata->server_change_state = false;
 				netif_wake_queue(netdev);
@@ -2074,7 +2073,8 @@ static int visornic_resume(struct visor_device *dev,
  *
  *	Called from driver exit or if driver fails to init.
  */
-static void visornic_cleanup_guts(void) { 
+static void visornic_cleanup_guts(void)
+{
 	visorbus_unregister_visor_driver(&visornic_driver);
 	kfree(dev_no_pool);
 	dev_no_pool = NULL;
