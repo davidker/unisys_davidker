@@ -29,10 +29,7 @@
 #include "visorchipset.h"
 #include "iochannel.h"
 
-#define VISORNIC_STATS 0
-#define VISORNIC_XMIT_TIMEOUT (5 * HZ)
 #define VISORNIC_INFINITE_RESPONSE_WAIT 0
-#define INTERRUPT_VECTOR_MASK 0x3F
 #define VISORNICSOPENMAX 32
 #define MAXDEVICES     16384
 
@@ -41,8 +38,8 @@
  */
 #define MAX_BUF 163840
 
-static spinlock_t dev_no_pool_lock;
-static void *dev_no_pool;	/**< pool to grab device numbers from */
+static spinlock_t dev_num_pool_lock;
+static void *dev_num_pool;	/**< pool to grab device numbers from */
 
 static int visornic_probe(struct visor_device *dev);
 static void visornic_remove(struct visor_device *dev);
@@ -82,7 +79,7 @@ static struct visor_channeltype_descriptor visornic_channel_types[] = {
  * is attached or removed.
  */
 static struct visor_driver visornic_driver = {
-	.name = __FILE__,
+	.name = "visornic",
 	.version = "1.0.0.0",
 	.vertag = NULL,
 	.owner = THIS_MODULE,
@@ -114,15 +111,13 @@ struct chanstat {
 };
 
 struct visornic_devdata {
-	int devno;
-	int interrupt_vector;
+	int devnum;
 	int thread_wait_ms;
 	unsigned short enabled;		/* 0 disabled 1 enabled to receive */
 	unsigned short enab_dis_acked;	/* NET_RCV_ENABLE/DISABLE acked by
 					 * IOPART
 					 */
 	struct visor_device *dev;
-	struct visorchipset_device_info dev_chipset; /* IRQ Information */
 	/* lock for dev */
 	struct rw_semaphore lock_visor_dev;
 	char name[99];
@@ -133,7 +128,7 @@ struct visornic_devdata {
 	atomic_t interrupt_rcvd;
 	wait_queue_head_t rsp_queue;
 	struct sk_buff **rcvbuf;
-	unsigned long long uniquenum;
+	unsigned long long uniquenum; /* TODO figure out why not used */
 	unsigned short old_flags;	/* flags as they were prior to
 					 * set_multicast_list
 					 */
@@ -217,7 +212,7 @@ static DEFINE_SPINLOCK(lock_all_devices);
  *	Return value indicates number of entries filled in frags
  *	Negative values indicate an error.
  */
-unsigned int
+static unsigned int
 visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 			      unsigned int frags_max,
 			      struct phys_info frags[])
@@ -290,9 +285,9 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
  *	process_incoming_rsps
  *	Returns 0 on success;
  */
-int visor_thread_start(struct visor_thread_info *thrinfo,
-		       int (*threadfn)(void *),
-		       void *thrcontext, char *name)
+static int visor_thread_start(struct visor_thread_info *thrinfo,
+			      int (*threadfn)(void *),
+			      void *thrcontext, char *name)
 {
 	/* used to stop the thread */
 	init_completion(&thrinfo->has_stopped);
@@ -312,7 +307,7 @@ int visor_thread_start(struct visor_thread_info *thrinfo,
  *	Stop the thread and wait for completion for a minute
  *	Returns void.
  */
-void visor_thread_stop(struct visor_thread_info *thrinfo)
+static void visor_thread_stop(struct visor_thread_info *thrinfo)
 {
 	if (!thrinfo->id)
 		return;	/* thread not running */
@@ -359,10 +354,6 @@ static ssize_t info_debugfs_read(struct file *file, char __user *buf,
 		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
 				     " num_rcv_bufs = %d\n",
 				     devdata->num_rcv_bufs);
-		/* str_pos += scnprintf(vbuf + str_pos, len - str_pos,
-		 *			" features = 0x%015llX\n",
-		 *     visorchannel_read(devdata->dev->visorchannel
-		 */
 		str_pos += scnprintf(vbuf + str_pos, len - str_pos,
 				     " max_oustanding_next_xmits = %d\n",
 				    devdata->max_outstanding_net_xmits);
@@ -566,8 +557,6 @@ visornic_serverdown_complete(struct work_struct *work)
 static int
 visornic_serverdown(struct visornic_devdata *devdata)
 {
-	struct net_device *netdev = devdata->netdev;
-
 	if (!devdata->server_down && !devdata->server_change_state) {
 		devdata->server_change_state = true;
 		queue_work(visornic_serverdown_workqueue,
@@ -1344,7 +1333,7 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 
 	/* update rcv stats - call it with priv_lock held */
 	devdata->net_stats.rx_packets++;
-	devdata->net_stats.rx_bytes == skb->len;
+	devdata->net_stats.rx_bytes = skb->len;
 
 	atomic_inc(&devdata->usage);	/* don't want a close to happen before
 					   we're done here */
@@ -1543,22 +1532,22 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 static struct visornic_devdata *
 devdata_initialize(struct visornic_devdata *devdata, struct visor_device *dev)
 {
-	int devno = -1;
+	int devnum = -1;
 
 	if (!devdata)
 		return NULL;
 	memset(devdata, '\0', sizeof(struct visornic_devdata));
-	spin_lock(&dev_no_pool_lock);
-	devno = find_first_zero_bit(dev_no_pool, MAXDEVICES);
-	set_bit(devno, dev_no_pool);
-	spin_unlock(&dev_no_pool_lock);
-	if (devno == MAXDEVICES)
-		devno = -1;
-	if (devno < 0) {
+	spin_lock(&dev_num_pool_lock);
+	devnum = find_first_zero_bit(dev_num_pool, MAXDEVICES);
+	set_bit(devnum, dev_num_pool);
+	spin_unlock(&dev_num_pool_lock);
+	if (devnum == MAXDEVICES)
+		devnum = -1;
+	if (devnum < 0) {
 		kfree(devdata);
 		return NULL;
 	}
-	devdata->devno = devno;
+	devdata->devnum = devnum;
 	devdata->dev = dev;
 	strncpy(devdata->name, dev_name(&dev->device), sizeof(devdata->name));
 	init_rwsem(&devdata->lock_visor_dev);
@@ -1581,29 +1570,13 @@ static void devdata_release(struct kref *mykref)
 	struct visornic_devdata *devdata =
 		container_of(mykref, struct visornic_devdata, kref);
 
-	spin_lock(&dev_no_pool_lock);
-	clear_bit(devdata->devno, dev_no_pool);
-	spin_unlock(&dev_no_pool_lock);
+	spin_lock(&dev_num_pool_lock);
+	clear_bit(devdata->devnum, dev_num_pool);
+	spin_unlock(&dev_num_pool_lock);
 	spin_lock(&lock_all_devices);
 	list_del(&devdata->list_all);
 	spin_unlock(&lock_all_devices);
 	kfree(devdata);
-}
-
-/**
- *	visornic_ISR	- Interrupt handler for visornic
- *	@irq: irq
- *	@dev_id: dev_id
- *
- *	Interrupt handler for visornic, process the incoming
- *	responses when we get an interrupt. Currently not
- *	supported. TODO: get this to work
- *	Returns IRQ_HANDLED.
- */
-static irqreturn_t
-visornic_ISR(int irq, void *dev_id)
-{
-	return IRQ_HANDLED;
 }
 
 static const struct net_device_ops visornic_dev_ops = {
@@ -1802,7 +1775,6 @@ process_incoming_rsps(void *v)
 		atomic_set(&devdata->interrupt_rcvd, 0);
 		send_rcv_posts_if_needed(devdata);
 		drain_queue(cmdrsp, devdata);
-		// uisqueue_interlocked_or
 		if (kthread_should_stop())
 			break;
 	}
@@ -1824,12 +1796,7 @@ static int visornic_probe(struct visor_device *dev)
 	struct visornic_devdata *devdata = NULL;
 	struct net_device *netdev = NULL;
 	int err;
-	int rsp;
 	int channel_offset = 0;
-	irq_handler_t handler = visornic_ISR;
-	struct channel_header __iomem *p_channel_header;
-	struct signal_queue_header __iomem *pqhdr;
-	u64 mask;
 	u64 features;
 
 	netdev = alloc_etherdev(sizeof(struct visornic_devdata));
@@ -1837,35 +1804,36 @@ static int visornic_probe(struct visor_device *dev)
 		return -ENOMEM;
 
 	netdev->netdev_ops = &visornic_dev_ops;
-	netdev->watchdog_timeo = VISORNIC_XMIT_TIMEOUT;
+	netdev->watchdog_timeo = (5 * HZ);
+	netdev->dev.parent = &dev->device;
 
 	/* Get MAC adddress from channel and read it into the device. */
+	netdev->addr_len = ETH_ALEN;
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.macaddr);
-	visorbus_read_channel(dev, channel_offset, netdev->dev_addr,
-			      ETH_ALEN);
-	netdev->addr_len = ETH_ALEN;
-	netdev->dev.parent = &dev->device;
+	err = visorbus_read_channel(dev, channel_offset, netdev->dev_addr,
+				    ETH_ALEN);
+	if (err < 0)
+		return -EINVAL;
 
 	devdata = devdata_initialize(netdev_priv(netdev), dev);
 	if (!devdata)
 		return -ENOMEM;
 
-	devdata->interrupt_vector = -1;
 	devdata->netdev = netdev;
 	init_waitqueue_head(&devdata->rsp_queue);
 	spin_lock_init(&devdata->priv_lock);
 	devdata->enabled = 0; /* not yet */
 	atomic_set(&devdata->usage, 1);
 
-	visorchipset_get_device_info(dev->chipset_bus_no,
-				     dev->chipset_dev_no,
-				     &devdata->dev_chipset);
-
 	/* Setup rcv bufs */
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.num_rcv_bufs);
-	visorbus_read_channel(dev, channel_offset, &devdata->num_rcv_bufs, 4);
+	err = visorbus_read_channel(dev, channel_offset,
+				    &devdata->num_rcv_bufs, 4);
+	if (err)
+		return err;
+
 	devdata->rcvbuf = kmalloc(sizeof(struct sk_buff *) *
 				  devdata->num_rcv_bufs, GFP_ATOMIC);
 	if (!devdata->rcvbuf) {
@@ -1906,17 +1874,21 @@ static int visornic_probe(struct visor_device *dev)
 	/*set the default mtu */
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  vnic.mtu);
-	visorbus_read_channel(dev, channel_offset, &netdev->mtu, 4);
+	err = visorbus_read_channel(dev, channel_offset, &netdev->mtu, 4);
+	if (err)
+		return err;
 
 	/* TODO: Setup Interrupt information */
-	//devdata->intr = virtpcidev->intr;
-
 	/* Let's start our threads to get responses */
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  channel_header.features);
-	visorbus_read_channel(dev, channel_offset, &features, 8);
+	err = visorbus_read_channel(dev, channel_offset, &features, 8);
+	if (err)
+		return err;
 	features |= ULTRA_IO_CHANNEL_IS_POLLING;
-	visorbus_write_channel(dev, channel_offset, &features, 8);
+	err = visorbus_write_channel(dev, channel_offset, &features, 8);
+	if (err)
+		return err;
 
 	devdata->thread_wait_ms = 2;
 	visor_thread_start(&devdata->threadinfo, process_incoming_rsps,
@@ -1956,7 +1928,7 @@ static int visornic_probe(struct visor_device *dev)
 static void host_side_disappeared(struct visornic_devdata *devdata)
 {
 	down_write(&devdata->lock_visor_dev);
-	sprintf(devdata->name, "<dev#%d-history>", devdata->devno);
+	sprintf(devdata->name, "<dev#%d-history>", devdata->devnum);
 	devdata->dev = NULL;   /* indicate device destroyed */
 	up_write(&devdata->lock_visor_dev);
 }
@@ -2057,18 +2029,6 @@ static int visornic_resume(struct visor_device *dev,
 }
 
 /**
- *	visornic_cleanup_guts	- driver cleanup routine.
- *
- *	Called from driver exit or if driver fails to init.
- */
-static void visornic_cleanup_guts(void)
-{
-	visorbus_unregister_visor_driver(&visornic_driver);
-	kfree(dev_no_pool);
-	dev_no_pool = NULL;
-}
-
-/**
  *	visornic_init	- Init function
  *
  *	Init function for the visornic driver. Do initial driver setup
@@ -2077,11 +2037,8 @@ static void visornic_cleanup_guts(void)
  */
 static int visornic_init(void)
 {
-	/* DAK -- ASSERTS were here, RCVPOST_BUF_SIZE < 4K &
-	 * RCVPOST_BUF_SIZE < ETH_HEADER_SIZE.  We own these, why do we
-	 * need to assert?  No one is going to change the headers and if
-	 * they do oh well
-	 */
+	struct dentry *ret;
+
 	/* create workqueue for serverdown completion */
 	visornic_serverdown_workqueue =
 		create_singlethread_workqueue("visornic_serverdown");
@@ -2095,17 +2052,23 @@ static int visornic_init(void)
 		return -ENOMEM;
 
 	visornic_debugfs_dir = debugfs_create_dir("visornic", NULL);
-	debugfs_create_file("info", S_IRUSR, visornic_debugfs_dir, NULL,
-			    &debugfs_info_fops);
-	debugfs_create_file("enable_ints", S_IWUSR, visornic_debugfs_dir,
-			    NULL, &debugfs_enable_ints_fops);
-
-	spin_lock_init(&dev_no_pool_lock);
-	dev_no_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
-	if (!dev_no_pool) {
-		visornic_cleanup_guts();
+	if (!visornic_debugfs_dir)
 		return -ENOMEM;
-	}
+
+	ret = debugfs_create_file("info", S_IRUSR, visornic_debugfs_dir, NULL,
+				  &debugfs_info_fops);
+	if (!ret)
+		return -ENOMEM;
+	ret = debugfs_create_file("enable_ints", S_IWUSR, visornic_debugfs_dir,
+				  NULL, &debugfs_enable_ints_fops);
+	if (!ret)
+		return -ENOMEM;
+
+	spin_lock_init(&dev_num_pool_lock);
+	dev_num_pool = kzalloc(BITS_TO_LONGS(MAXDEVICES), GFP_KERNEL);
+	if (!dev_num_pool)
+		return -ENOMEM;
+
 	visorbus_register_visor_driver(&visornic_driver);
 	return 0;
 }
@@ -2117,7 +2080,9 @@ static int visornic_init(void)
  */
 static void visornic_cleanup(void)
 {
-	visornic_cleanup_guts();
+	visorbus_unregister_visor_driver(&visornic_driver);
+	kfree(dev_num_pool);
+	dev_num_pool = NULL;
 }
 
 module_init(visornic_init);
