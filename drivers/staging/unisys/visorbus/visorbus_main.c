@@ -115,15 +115,6 @@ struct bus_type visorbus_type = {
 	.bus_groups = visorbus_bus_groups,
 };
 
-static struct delayed_work periodic_work;
-
-/* YES, we need 2 workqueues.
- * The reason is, workitems on the test queue may need to cancel
- * workitems on the other queue.  You will be in for trouble if you try to
- * do this with workitems queued on the same workqueue.
- */
-static struct workqueue_struct *periodic_test_workqueue;
-static struct workqueue_struct *periodic_dev_workqueue;
 static long long bus_count;	/** number of bus instances */
 					/** ever-increasing */
 
@@ -234,10 +225,6 @@ visorbus_release_device(struct device *xdev)
 {
 	struct visor_device *dev = to_visor_device(xdev);
 
-	if (dev->periodic_work) {
-		visor_periodic_work_destroy(dev->periodic_work);
-		dev->periodic_work = NULL;
-	}
 	if (dev->visorchannel) {
 		visorchannel_destroy(dev->visorchannel);
 		dev->visorchannel = NULL;
@@ -717,35 +704,16 @@ unregister_driver_attributes(struct visor_driver *drv)
 }
 
 static void
-dev_periodic_work(void *xdev)
+poll_for_irq(unsigned long v)
 {
-	struct visor_device *dev = xdev;
+	struct visor_device *dev = (struct visor_device *)v;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
 	down(&dev->visordriver_callback_lock);
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
 	up(&dev->visordriver_callback_lock);
-	if (!visor_periodic_work_nextperiod(dev->periodic_work))
-		put_device(&dev->device);
-}
-
-static void
-dev_start_periodic_work(struct visor_device *dev)
-{
-	if (dev->being_removed)
-		return;
-	/* now up by at least 2 */
-	get_device(&dev->device);
-	if (!visor_periodic_work_start(dev->periodic_work))
-		put_device(&dev->device);
-}
-
-static void
-dev_stop_periodic_work(struct visor_device *dev)
-{
-	if (visor_periodic_work_stop(dev->periodic_work))
-		put_device(&dev->device);
+	mod_timer(&dev->irq_poll_timer, msecs_to_jiffies(2));
 }
 
 /** This is called automatically upon adding a visor_device (device_add), or
@@ -812,7 +780,6 @@ visordriver_remove_device(struct device *xdev)
 			drv->remove(dev);
 	}
 	up(&dev->visordriver_callback_lock);
-	dev_stop_periodic_work(dev);
 	devmajorminor_remove_all_files(dev);
 
 	put_device(&dev->device);
@@ -960,7 +927,9 @@ visorbus_enable_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	dev_start_periodic_work(dev);
+	setup_timer(&dev->irq_poll_timer, poll_for_irq,
+		    (unsigned long)dev);
+	mod_timer(&dev->irq_poll_timer, msecs_to_jiffies(2));
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
@@ -971,7 +940,7 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 		visorchannel_clear_sig_features(dev->visorchannel,
 						dev->recv_queue,
 						ULTRA_CHANNEL_ENABLE_INTS);
-	dev_stop_periodic_work(dev);
+	del_timer_sync(&dev->irq_poll_timer);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
@@ -1132,16 +1101,6 @@ create_visor_device(struct visor_device *dev)
 	dev->device.release = visorbus_release_device;
 	/* keep a reference just for us (now 2) */
 	get_device(&dev->device);
-	dev->periodic_work =
-		visor_periodic_work_create(POLLJIFFIES_NORMALCHANNEL,
-					   periodic_dev_workqueue,
-					   dev_periodic_work,
-					   dev, dev_name(&dev->device));
-	if (!dev->periodic_work) {
-		POSTCODE_LINUX_3(DEVICE_CREATE_FAILURE_PC, chipset_dev_no,
-				 DIAG_SEVERITY_ERR);
-		goto away;
-	}
 
 	/* bus_id must be a unique name with respect to this bus TYPE
 	 * (NOT bus instance).  That's why we need to include the bus
@@ -1664,13 +1623,6 @@ visorbus_init(void)
 		goto away;
 	}
 
-	periodic_dev_workqueue = create_singlethread_workqueue("visorbus_dev");
-	if (!periodic_dev_workqueue) {
-		POSTCODE_LINUX_2(CREATE_WORKQUEUE_PC, DIAG_SEVERITY_ERR);
-		rc = -ENOMEM;
-		goto away;
-	}
-
 	/* This enables us to receive notifications when devices appear for
 	 * which this service partition is to be a server for.
 	 */
@@ -1694,17 +1646,6 @@ visorbus_exit(void)
 
 	visorchipset_register_busdev(NULL, NULL, NULL);
 	remove_all_visor_devices();
-
-	flush_workqueue(periodic_dev_workqueue); /* better not be any work! */
-	destroy_workqueue(periodic_dev_workqueue);
-	periodic_dev_workqueue = NULL;
-
-	if (periodic_test_workqueue) {
-		cancel_delayed_work(&periodic_work);
-		flush_workqueue(periodic_test_workqueue);
-		destroy_workqueue(periodic_test_workqueue);
-		periodic_test_workqueue = NULL;
-	}
 
 	list_for_each_safe(listentry, listtmp, &list_all_bus_instances) {
 		struct visor_device *dev = list_entry(listentry,
