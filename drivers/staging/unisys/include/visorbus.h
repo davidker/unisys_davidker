@@ -159,6 +159,8 @@ struct visor_device {
 	u32 switch_no;
 	u32 internal_port_no;
 	uuid_le partition_uuid;
+	struct timer_list irq_poll_timer;
+	struct irq_info intr;   /* specifies interrupt information */
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)
