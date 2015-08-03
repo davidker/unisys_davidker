@@ -1015,14 +1015,14 @@ static void process_incoming_rsps(unsigned long v)
 
 	cmdrsp = kmalloc(size, GFP_ATOMIC);
 	if (!cmdrsp) {
-		/* visorbus_enable_channel_interrupts(devdata->dev); */
+		visorbus_rearm_channel_interrupts(devdata->dev);
 		return;
 	}
 
 	/* drain queue */
 	drain_queue(cmdrsp, devdata);
 
-	/* visorbus_enable_channel_interrupts(devdata->dev); */
+	visorbus_rearm_channel_interrupts(devdata->dev);
 	kfree(cmdrsp);
 	return;
 }
@@ -1147,6 +1147,11 @@ static int visorhba_probe(struct visor_device *dev)
 	devdata->thread_wait_ms = 2;
 	tasklet_init(&devdata->tasklet, process_incoming_rsps,
 		     (unsigned long)devdata);
+
+	/* I want to use real interrupts if available so need to
+	 * register
+	 */
+	visorbus_register_for_channel_interrupts(dev, IOCHAN_FROM_IOPART);
 
 	visorbus_enable_channel_interrupts(dev);
 

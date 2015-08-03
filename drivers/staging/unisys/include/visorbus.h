@@ -159,6 +159,10 @@ struct visor_device {
 	u32 switch_no;
 	u32 internal_port_no;
 	uuid_le partition_uuid;
+	struct timer_list irq_poll_timer;
+	struct irq_info intr;   /* specifies interrupt information */
+	int wait_ms;
+	int recv_queue;		/* specifies which queue to receive msgs on */
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)
@@ -176,8 +180,12 @@ int visorbus_clear_channel(struct visor_device *dev,
 			   unsigned long offset, u8 ch, unsigned long nbytes);
 int visorbus_registerdevnode(struct visor_device *dev,
 			     const char *name, int major, int minor);
+int visorbus_register_for_channel_interrupts(struct visor_device *dev,
+					     u32 queue);
 void visorbus_enable_channel_interrupts(struct visor_device *dev);
 void visorbus_disable_channel_interrupts(struct visor_device *dev);
+void visorbus_rearm_channel_interrupts(struct visor_device *dev);
+
 #endif
 
 /* Note that for visorchannel_create()
@@ -218,6 +226,10 @@ char *visorchannel_uuid_id(uuid_le *guid, char *s);
 void visorchannel_debug(struct visorchannel *channel, int num_queues,
 			struct seq_file *seq, u32 off);
 void __iomem *visorchannel_get_header(struct visorchannel *channel);
+void visorchannel_set_sig_features(struct visorchannel *channel, u32 queue,
+				   u64 features);
+void visorchannel_clear_sig_features(struct visorchannel *channel, u32 queue,
+				     u64 features);
 
 #define BUS_ROOT_DEVICE		UINT_MAX
 struct visor_device *visorbus_get_device_by_id(u32 bus_no, u32 dev_no,
