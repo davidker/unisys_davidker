@@ -24,6 +24,7 @@
 #include "vbuschannel.h"
 #include "guestlinuxdebug.h"
 #include "vmcallinterface.h"
+#include "iochannel.h"
 
 #define MYDRVNAME "visorbus"
 
@@ -945,7 +946,8 @@ void
 visorbus_enable_channel_interrupts(struct visor_device *dev)
 {
 	if (dev->intr.recv_irq_handle)
-		visorchannel_set_sig_features(dev->visorchannel, 1,
+		visorchannel_set_sig_features(dev->visorchannel,
+					      IOCHAN_FROM_IOPART,
 					      ULTRA_CHANNEL_ENABLE_INTS);
 	else
 		dev_start_periodic_work(dev);
@@ -956,7 +958,8 @@ void
 visorbus_disable_channel_interrupts(struct visor_device *dev)
 {
 	if (!dev->intr.recv_irq_handle)
-		visorchannel_clear_sig_features(dev->visorchannel, 1,
+		visorchannel_clear_sig_features(dev->visorchannel,
+						IOCHAN_FROM_IOPART,
 						ULTRA_CHANNEL_ENABLE_INTS);
 	else
 		dev_stop_periodic_work(dev);
@@ -979,8 +982,8 @@ visorbus_isr(int irq, void *dev_id)
 
 int visorbus_rearm_interrupts(struct visor_device *dev)
 {
-	return visorchannel_set_sig_features(dev->visorchannel, 1,
-					     ULTRA_CHANNEL_ENABLE_INTS);
+	visorchannel_set_sig_features(dev->visorchannel, IOCHAN_FROM_IOPART,
+				      ULTRA_CHANNEL_ENABLE_INTS);
 }
 EXPORT_SYMBOL_GPL(visorbus_rearm_interrupts);
 
