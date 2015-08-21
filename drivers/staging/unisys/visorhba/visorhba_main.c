@@ -1028,14 +1028,14 @@ static void process_incoming_rsps(unsigned long v)
 
 	cmdrsp = kmalloc(size, GFP_ATOMIC);
 	if (!cmdrsp) {
-		visorbus_enable_channel_interrupts(devdata->dev);
+		visorbus_rearm_channel_interrupts(devdata->dev);
 		return;
 	}
 
 	/* drain queue */
 	drain_queue(cmdrsp, devdata);
 
-	visorbus_enable_channel_interrupts(devdata->dev);
+	visorbus_rearm_channel_interrupts(devdata->dev);
 	kfree(cmdrsp);
 	return;
 }
@@ -1045,14 +1045,14 @@ static void process_incoming_rsps(unsigned long v)
  *
  *	Interrupts from visorbus are procesed here. Since the IOVM
  *	sends us "real" interrupts, we are interrupt context here, so
- *	we need to schedule the work (if any). Note: Interrupts might
- *	be shared between devices.
+ *	we need to schedule the work (if any). Visorbus has disarmed
+ *	interrupts for us, we must rearm them before we get another
+ *	interrupt. Note: Interrupts might be shared between devices. 
  */
 static void visorhba_isr(struct visor_device *dev)
 {
 	struct visorhba_devdata *devdata = dev_get_drvdata(&dev->device);
 
-	visorbus_disable_channel_interrupts(dev);
 	tasklet_schedule(&devdata->tasklet);
 }
 
@@ -1181,7 +1181,7 @@ static int visorhba_probe(struct visor_device *dev)
 	/* I want to use real interrupts if available so need to
 	 * register 
 	 */
-	visorbus_register_for_channel_interrupts();
+	visorbus_register_for_channel_interrupts(dev, IOCHAN_FROM_IOPART);
 
 	visorbus_enable_channel_interrupts(dev);
 

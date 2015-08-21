@@ -162,6 +162,7 @@ struct visor_device {
 	struct timer_list irq_poll_timer;
 	struct irq_info intr;   /* specifies interrupt information */
 	int wait_ms;
+	int recv_queue;		/* specifies which queue to recieve msgs on */
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)
@@ -179,11 +180,11 @@ int visorbus_clear_channel(struct visor_device *dev,
 			   unsigned long offset, u8 ch, unsigned long nbytes);
 int visorbus_registerdevnode(struct visor_device *dev,
 			     const char *name, int major, int minor);
-int visorbus_register_for_interrupts(struct visor_device *dev, u32 queue,
-				     u64 channel_flags);
+int visorbus_register_for_channel_interrupts(struct visor_device *dev, 
+					     u32 queue);
 void visorbus_enable_channel_interrupts(struct visor_device *dev);
 void visorbus_disable_channel_interrupts(struct visor_device *dev);
-int visorbus_rearm_interrupts(struct visor_device *dev);
+void visorbus_rearm_channel_interrupts(struct visor_device *dev);
 
 #endif
 
