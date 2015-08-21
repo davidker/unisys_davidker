@@ -1067,7 +1067,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 	err = request_irq(int_vector, visorbus_isr, IRQF_SHARED,
 			  dev->name, dev);
 	if (err < 0)
-		return err;
+		goto stay_in_polling;
 
 	channel_offset = offsetof(struct channel_header,
 				  features);
@@ -1076,7 +1076,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 		dev_err(&dev->device,
 			"%s failed to get features from chan (%d)\n",
 			__func__, err);
-		return err;
+		goto stay_in_polling;
 	}
 	mask = ~(ULTRA_IO_CHANNEL_IS_POLLING);
 	features &= mask;
@@ -1086,12 +1086,16 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 		dev_err(&dev->device,
 			"%s failed to get features from chan (%d)\n",
 			__func__, err);
-		return err;
+		goto stay_in_polling;
 	}
 
 	dev->wait_ms = 2000;
 	dev->recv_queue = queue;
 	return 0;
+
+stay_in_polling:
+	dev->intr.recv_irq_handle  = 0;
+	return err;
 }
 EXPORT_SYMBOL_GPL(visorbus_register_for_channel_interrupts);
 
