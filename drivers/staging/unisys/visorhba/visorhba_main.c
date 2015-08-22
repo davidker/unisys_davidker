@@ -980,6 +980,7 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visorhba_devdata *devdata)
 					       cmdrsp))
 			break; /* queue empty */
 
+		printk("** ** ** ** ** ** ** D A K ** ** ** ** NOT EMPTY **\n");
 		if (cmdrsp->cmdtype == CMD_SCSI_TYPE) {
 			/* scsicmd location is returned by the
 			 * deletion
@@ -1026,6 +1027,7 @@ static void process_incoming_rsps(unsigned long v)
 	struct uiscmdrsp *cmdrsp = NULL;
 	const int size = sizeof(*cmdrsp);
 
+	printk("***** DAK PROCESS_INCOMING RSPS *********\n");
 	cmdrsp = kmalloc(size, GFP_ATOMIC);
 	if (!cmdrsp) {
 		visorbus_rearm_channel_interrupts(devdata->dev);

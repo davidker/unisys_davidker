@@ -986,6 +986,7 @@ visorbus_isr(int irq, void *dev_id)
 	 * the responsibility of re-arming the interrupt so the SP
 	 * can send another one.
 	 */
+	printk("***** DAK VISORHBA ISR ****** \n");
 	visorchannel_clear_sig_features(dev->visorchannel,
 					dev->recv_queue,
 					ULTRA_CHANNEL_ENABLE_INTS);
@@ -1094,6 +1095,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 	return 0;
 
 stay_in_polling:
+	printk("***** DAK STAYING IN POLLING MODE ***** \n");
 	dev->intr.recv_irq_handle  = 0;
 	return err;
 }
