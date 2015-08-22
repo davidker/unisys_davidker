@@ -958,8 +958,7 @@ visorbus_enable_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	else
-		dev_start_periodic_work(dev);
+	dev_start_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
@@ -970,8 +969,7 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 		visorchannel_clear_sig_features(dev->visorchannel,
 						dev->recv_queue,
 						ULTRA_CHANNEL_ENABLE_INTS);
-	else
-		dev_stop_periodic_work(dev);
+	dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
@@ -986,7 +984,7 @@ visorbus_isr(int irq, void *dev_id)
 	 * the responsibility of re-arming the interrupt so the SP
 	 * can send another one.
 	 */
-	printk("***** DAK VISORHBA ISR ****** \n");
+	printk("DAK ******* VISORHBUS ISR ********\n");
 	visorchannel_clear_sig_features(dev->visorchannel,
 					dev->recv_queue,
 					ULTRA_CHANNEL_ENABLE_INTS);
@@ -1092,6 +1090,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 
 	dev->wait_ms = 2000;
 	dev->recv_queue = queue;
+	printk("****** DAK STYING IN INTERRUPT MODE ******\n");
 	return 0;
 
 stay_in_polling:
