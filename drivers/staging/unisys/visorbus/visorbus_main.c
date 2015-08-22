@@ -960,8 +960,7 @@ visorbus_enable_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	else
-		dev_start_periodic_work(dev);
+	dev_start_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
@@ -972,8 +971,7 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 		visorchannel_clear_sig_features(dev->visorchannel,
 						dev->recv_queue,
 						ULTRA_CHANNEL_ENABLE_INTS);
-	else
-		dev_stop_periodic_work(dev);
+	dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
