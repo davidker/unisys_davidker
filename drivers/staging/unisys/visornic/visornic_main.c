@@ -1841,25 +1841,6 @@ static int visornic_probe(struct visor_device *dev)
 		goto cleanup_xmit_cmdrsp;
 	}
 
-	channel_offset = offsetof(struct spar_io_channel_protocol,
-				  channel_header.features);
-	err = visorbus_read_channel(dev, channel_offset, &features, 8);
-	if (err) {
-		dev_err(&dev->device,
-			"%s failed to get features from chan (%d)\n",
-			__func__, err);
-		goto cleanup_napi_add;
-	}
-
-	features |= ULTRA_IO_CHANNEL_IS_POLLING;
-	err = visorbus_write_channel(dev, channel_offset, &features, 8);
-	if (err) {
-		dev_err(&dev->device,
-			"%s failed to set features in chan (%d)\n",
-			__func__, err);
-		goto cleanup_napi_add;
-	}
-
 	/* TODO: Setup Interrupt information */
 	/* Let's start our threads to get responses */
 	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
