@@ -1053,6 +1053,7 @@ static void visorhba_isr(struct visor_device *dev)
 {
 	struct visorhba_devdata *devdata = dev_get_drvdata(&dev->device);
 
+	visorbus_disable_channel_interrupts(dev);
 	tasklet_schedule(&devdata->tasklet);
 }
 
