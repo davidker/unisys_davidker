@@ -1692,6 +1692,7 @@ static int visornic_poll(struct napi_struct *napi, int budget)
 							napi);
 	int rx_count = 0;
 
+	printk("VISORNIC POLL \n");
 	send_rcv_posts_if_needed(devdata);
 	service_resp_queue(devdata->cmdrsp, devdata, &rx_count);
 
@@ -1720,10 +1721,13 @@ visornic_irq(struct visor_device *v)
 {
 	struct visornic_devdata *devdata = dev_get_drvdata(&v->device);
 
+	printk("***** DAK ****** VISORNIC IRQ ********\n");
 	if (!visorchannel_signalempty(devdata->dev->visorchannel,
 				      IOCHAN_FROM_IOPART)) {
 		napi_schedule(&devdata->napi);
+		return;
 	}
+	visorbus_rearm_channel_interrupts(devdata->dev);
 }
 
 /**
