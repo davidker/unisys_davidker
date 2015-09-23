@@ -1837,7 +1837,7 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_enable_channel_interrupts(dev);
 
 	/* Let's start our threads to get responses */
-	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
+	netif_napi_add(netdev, &devdata->napi, visornic_poll, NAPI_WEIGHT);
 
 	/*
 	 * Note: Interupts have to be enable before the while
