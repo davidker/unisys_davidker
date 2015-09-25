@@ -1703,6 +1703,9 @@ static int visornic_poll(struct napi_struct *napi, int budget)
 	if (rx_count < budget) {
 		napi_complete(napi);
 		visorbus_rearm_channel_interrupts(devdata->dev);
+		printk("DAK -- NAPI COMPLETE rx_count == %d\n", rx_count);
+	} else { 
+		printk("DAK -- reached budget rx_count == %d\n", rx_count);
 	}
 
 	return rx_count;
@@ -1721,6 +1724,7 @@ visornic_irq(struct visor_device *v)
 {
 	struct visornic_devdata *devdata = dev_get_drvdata(&v->device);
 
+	printk("DAK -- GOT AN 'INTERRUPT' \n");
 	if (!visorchannel_signalempty(devdata->dev->visorchannel,
 				      IOCHAN_FROM_IOPART))
 		napi_schedule(&devdata->napi);
