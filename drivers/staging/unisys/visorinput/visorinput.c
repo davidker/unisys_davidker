@@ -25,6 +25,7 @@
 #include <linux/fb.h>
 #include <linux/fs.h>
 #include <linux/input.h>
+#include <linux/interrupt.h>
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/uuid.h>
@@ -70,6 +71,7 @@ struct visorinput_devdata {
 	unsigned int keycode_table_bytes; /* size of following array */
 	/* for keyboard devices: visorkbd_keycode[] + visorkbd_ext_keycode[] */
 	unsigned char keycode_table[0];
+	struct tasklet_struct tasklet;
 };
 
 static const uuid_le spar_keyboard_channel_protocol_uuid =
@@ -402,27 +404,6 @@ cleanups_register:
 	return NULL;
 }
 
-static int
-visorinput_probe(struct visor_device *dev)
-{
-	struct visorinput_devdata *devdata = NULL;
-	uuid_le guid;
-	enum visorinput_device_type devtype;
-
-	guid = visorchannel_get_uuid(dev->visorchannel);
-	if (uuid_le_cmp(guid, spar_mouse_channel_protocol_uuid) == 0)
-		devtype = visorinput_mouse;
-	else if (uuid_le_cmp(guid, spar_keyboard_channel_protocol_uuid) == 0)
-		devtype = visorinput_keyboard;
-	else
-		return -ENODEV;
-	devdata = devdata_create(dev, devtype);
-	if (!devdata)
-		return -ENOMEM;
-	dev_set_drvdata(&dev->device, devdata);
-	return 0;
-}
-
 static void
 unregister_client_input(struct input_dev *visorinput_dev)
 {
@@ -439,12 +420,12 @@ visorinput_remove(struct visor_device *dev)
 		return;
 
 	visorbus_disable_channel_interrupts(dev);
+	tasklet_kill(&devdata->tasklet);
 
 	/*
 	 * due to above, at this time no thread of execution will be
 	 * in visorinput_channel_interrupt()
 	 */
-
 	down_write(&devdata->lock_visor_dev);
 	dev_set_drvdata(&dev->device, NULL);
 	unregister_client_input(devdata->visorinput_dev);
@@ -533,13 +514,28 @@ calc_button(int x)
 static void
 visorinput_channel_interrupt(struct visor_device *dev)
 {
+	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
+
+	tasklet_schedule(&devdata->tasklet);
+}
+
+/**
+ *	process_channel_interrupt - Process inputs from the channel
+ *
+ *	@v: void pointer to visorinput_devdata
+ *
+ *	Processes the responses from the Console Partition. When the queue
+ *	is empty, wait for the next interrupt.
+ */
+static void process_channel_interrupt(unsigned long v)
+{
+	struct visorinput_devdata *devdata = (struct visorinput_devdata *)v;
 	struct ultra_inputreport r;
 	int scancode, keycode;
 	struct input_dev *visorinput_dev;
 	int xmotion, ymotion, zmotion, button;
 	int i;
 
-	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
 
 	if (!devdata)
 		return;
@@ -552,7 +548,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	if (!visorinput_dev)
 		goto out_locked;
 
-	while (visorchannel_signalremove(dev->visorchannel, 0, &r)) {
+	while (visorchannel_signalremove(devdata->dev->visorchannel, 0, &r)) {
 		scancode = r.activity.arg1;
 		keycode = scancode_to_keycode(scancode);
 		switch (r.activity.action) {
@@ -633,6 +629,29 @@ out_locked:
 }
 
 static int
+visorinput_probe(struct visor_device *dev)
+{
+	struct visorinput_devdata *devdata = NULL;
+	uuid_le guid;
+	enum visorinput_device_type devtype;
+
+	guid = visorchannel_get_uuid(dev->visorchannel);
+	if (uuid_le_cmp(guid, spar_mouse_channel_protocol_uuid) == 0)
+		devtype = visorinput_mouse;
+	else if (uuid_le_cmp(guid, spar_keyboard_channel_protocol_uuid) == 0)
+		devtype = visorinput_keyboard;
+	else
+		return -ENODEV;
+	devdata = devdata_create(dev, devtype);
+	if (!devdata)
+		return -ENOMEM;
+	tasklet_init(&devdata->tasklet, process_channel_interrupt,
+		     (unsigned long)devdata);
+	dev_set_drvdata(&dev->device, devdata);
+	return 0;
+}
+
+static int
 visorinput_pause(struct visor_device *dev,
 	       visorbus_state_complete_func complete_func)
 {
@@ -649,6 +668,7 @@ visorinput_pause(struct visor_device *dev,
 		rc = -EBUSY;
 		goto out_locked;
 	}
+	tasklet_disable(&devdata->tasklet);
 	devdata->paused = true;
 	complete_func(dev, 0);
 	rc = 0;
@@ -669,6 +689,7 @@ visorinput_resume(struct visor_device *dev,
 		rc = -ENODEV;
 		goto out;
 	}
+	tasklet_enable(&devdata->tasklet);
 	down_write(&devdata->lock_visor_dev);
 	if (!devdata->paused) {
 		rc = -EBUSY;
