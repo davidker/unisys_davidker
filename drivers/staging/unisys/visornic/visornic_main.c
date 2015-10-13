@@ -1757,6 +1757,7 @@ static int visornic_probe(struct visor_device *dev)
 	struct net_device *netdev = NULL;
 	int err;
 	int channel_offset = 0;
+	u64 features;
 
 	netdev = alloc_etherdev(sizeof(struct visornic_devdata));
 	if (!netdev) {
