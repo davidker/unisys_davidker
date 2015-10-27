@@ -552,6 +552,23 @@ dev_stop_periodic_work(struct visor_device *dev)
 	put_device(&dev->device);
 }
 
+int visorbus_set_channel_state(struct visor_device *dev, u32 cli_state)
+{
+	int channel_offset = 0, err = 0;
+
+	channel_offset = offsetof(struct channel_header, cli_state_os);
+
+	err = visorbus_write_channel(dev, channel_offset, &cli_state, 4);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to set client_state_os from chan (%d)\n",
+			__func__, err);
+		return err;
+	}
+
+	return err;
+}
+
 /** This is called automatically upon adding a visor_device (device_add), or
  *  adding a visor_driver (visorbus_register_visor_driver), but only after
  *  visorbus_match has returned 1 to indicate a successful match between
@@ -603,6 +620,7 @@ visordriver_remove_device(struct device *xdev)
 	up(&dev->visordriver_callback_lock);
 	dev_stop_periodic_work(dev);
 
+	visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 	put_device(&dev->device);
 	return 0;
 }
@@ -777,6 +795,7 @@ create_visor_device(struct visor_device *dev)
 	 */
 	dev_set_name(&dev->device, "vbus%u:dev%u",
 		     chipset_bus_no, chipset_dev_no);
+	visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 
 	/*  device_add does this:
 	 *    bus_add_device(dev)
@@ -1144,6 +1163,9 @@ resume_state_change_complete(struct visor_device *dev, int status)
 	if (!chipset_responders.device_resume) /* this can never happen! */
 		return;
 
+	if (status < 0)
+		visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
+
 	/* Notify the chipset driver that the resume is complete,
 	 * which will presumably want to send some sort of response to
 	 * the initiator.
@@ -1166,6 +1188,7 @@ initiate_chipset_device_pause_resume(struct visor_device *dev, bool is_pause)
 		notify_func = chipset_responders.device_pause;
 	else
 		notify_func = chipset_responders.device_resume;
+
 	if (!notify_func)
 		return;
 
@@ -1209,6 +1232,7 @@ initiate_chipset_device_pause_resume(struct visor_device *dev, bool is_pause)
 		}
 
 		dev->resuming = true;
+		visorbus_set_channel_state(dev, CHANNELCLI_OWNED);
 		rc = drv->resume(dev, resume_state_change_complete);
 	}
 	if (rc < 0) {
