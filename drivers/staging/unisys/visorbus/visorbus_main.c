@@ -531,7 +531,8 @@ dev_periodic_work(unsigned long __opaque)
 
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
-	mod_timer(&dev->timer, jiffies + POLLJIFFIES_NORMALCHANNEL);
+	else
+		mod_timer(&dev->timer, jiffies + POLLJIFFIES_NORMALCHANNEL);
 }
 
 static void
@@ -753,6 +754,13 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 	dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
+
+void
+visorbus_rearm_channel_interrupts(struct visor_device *dev)
+{
+	mod_timer(&dev->timer, jiffies + POLLJIFFIES_NORMALCHANNEL);
+}
+EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
 
 int visorbus_set_channel_features(struct visor_device *dev, u64 feature_bits)
 {

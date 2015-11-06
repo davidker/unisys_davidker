@@ -188,6 +188,8 @@ int visorbus_clear_channel(struct visor_device *dev,
 			   unsigned long offset, u8 ch, unsigned long nbytes);
 void visorbus_enable_channel_interrupts(struct visor_device *dev);
 void visorbus_disable_channel_interrupts(struct visor_device *dev);
+void visorbus_rearm_channel_interrupts(struct visor_device *dev);
+
 #endif
 
 /* Note that for visorchannel_create()
