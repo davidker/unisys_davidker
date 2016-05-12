@@ -48,15 +48,9 @@ static int visornic_resume(struct visor_device *dev,
 /* DEBUGFS declarations */
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
 				 size_t len, loff_t *offset);
-static ssize_t enable_ints_write(struct file *file, const char __user *buf,
-				 size_t len, loff_t *ppos);
 static struct dentry *visornic_debugfs_dir;
 static const struct file_operations debugfs_info_fops = {
 	.read = info_debugfs_read,
-};
-
-static const struct file_operations debugfs_enable_ints_fops = {
-	.write = enable_ints_write,
 };
 
 /* GUIDS for director channel type supported by this driver.  */
@@ -275,17 +269,6 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 			count += c;
 		}
 	}
-	return count;
-}
-
-static ssize_t enable_ints_write(struct file *file,
-				 const char __user *buffer,
-				 size_t count, loff_t *ppos)
-{
-	/* Don't want to break ABI here by having a debugfs
-	 * file that no longer exists or is writable, so
-	 * lets just make this a vestigual function
-	 */
 	return count;
 }
 
@@ -2079,10 +2062,6 @@ static int visornic_init(void)
 
 	ret = debugfs_create_file("info", S_IRUSR, visornic_debugfs_dir, NULL,
 				  &debugfs_info_fops);
-	if (!ret)
-		goto cleanup_debugfs;
-	ret = debugfs_create_file("enable_ints", S_IWUSR, visornic_debugfs_dir,
-				  NULL, &debugfs_enable_ints_fops);
 	if (!ret)
 		goto cleanup_debugfs;
 
