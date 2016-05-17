@@ -22,9 +22,8 @@
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
-
-#include "visorbus.h"
-#include "iochannel.h"
+#include <linux/visorbus/visorbus.h>
+#include <linux/visorbus/iochannel.h>
 
 /* The Send and Receive Buffers of the IO Queue may both be full */
 

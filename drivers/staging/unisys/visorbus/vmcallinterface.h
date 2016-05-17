@@ -21,10 +21,9 @@
 * running on IO Partitions.
 */
 
-#ifdef __GNUC__
+#include <linux/visorbus/diagchannel.h>
+
 #include "iovmcall_gnuc.h"
-#endif	/*  */
-#include "diagchannel.h"
 
 #ifdef VMCALL_IO_CONTROLVM_ADDR
 #undef VMCALL_IO_CONTROLVM_ADDR

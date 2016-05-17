@@ -23,8 +23,9 @@
  *  the client devices and client drivers for the server end to see.
  */
 #include <linux/uuid.h>
+#include <linux/visorbus/channel.h>
+
 #include "vbusdeviceinfo.h"
-#include "channel.h"
 
 /* {193b331b-c58f-11da-95a9-00e08161165f} */
 #define SPAR_VBUS_CHANNEL_PROTOCOL_UUID \

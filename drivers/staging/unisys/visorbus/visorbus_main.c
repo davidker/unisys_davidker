@@ -16,11 +16,11 @@
 
 #include <linux/uuid.h>
 
-#include "visorbus.h"
+#include <linux/visorbus/visorbus.h>
+#include <linux/visorbus/version.h>
+#include <linux/visorbus/guestlinuxdebug.h>
 #include "visorbus_private.h"
-#include "version.h"
 #include "vbuschannel.h"
-#include "guestlinuxdebug.h"
 #include "vmcallinterface.h"
 
 #define MYDRVNAME "visorbus"

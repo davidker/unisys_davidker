@@ -22,8 +22,8 @@
 #include <linux/uuid.h>
 #include <linux/io.h>
 
-#include "version.h"
-#include "visorbus.h"
+#include <linux/visorbus/version.h>
+#include <linux/visorbus/visorbus.h>
 #include "controlvmchannel.h"
 #include "visorbus_private.h"
 

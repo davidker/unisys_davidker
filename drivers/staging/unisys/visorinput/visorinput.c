@@ -27,11 +27,11 @@
 #include <linux/input.h>
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
+#include <linux/visorbus/version.h>
+#include <linux/visorbus/visorbus.h>
+#include <linux/visorbus/channel.h>
 #include <linux/uuid.h>
 
-#include "version.h"
-#include "visorbus.h"
-#include "channel.h"
 #include "ultrainputreport.h"
 
 /* Keyboard channel {c73416d0-b0b8-44af-b304-9d2ae99f1b3d} */
